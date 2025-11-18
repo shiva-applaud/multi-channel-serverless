@@ -1,0 +1,56 @@
+{
+  "name": "twilio-lambda-webhook",
+  "version": "1.0.0",
+  "description": "AWS Lambda functions for Twilio webhook and messaging API",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "predeploy": "powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1",
+    "deploy": "serverless deploy",
+    "test": "jest",
+    "start": "serverless offline start",
+    "start:dynamodb": "start-dynamodb.bat",
+    "local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
+    "local:direct": "npm run build && npx serverless offline start",
+    "local:ps1": "powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1",
+    "start:with-db": "cross-env USE_DATABASE=true npm run start",
+    "start:no-db": "npm run build && cross-env USE_DATABASE=false npm run start",
+    "start:no-db:ps1": "powershell -ExecutionPolicy Bypass -File start-server.ps1 no-db",
+    "start:with-db:ps1": "powershell -ExecutionPolicy Bypass -File start-server.ps1 with-db",
+    "kill-ports": "node scripts/kill-ports.js",
+    "local:with-db": "cross-env USE_DATABASE=true npm run local",
+    "local:no-db": "cross-env USE_DATABASE=false npm run local"
+  },
+  "keywords": [
+    "twilio",
+    "lambda",
+    "webhook",
+    "whatsapp",
+    "sms"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/lib-dynamodb": "^3.490.0",
+    "googleapis": "^128.0.0",
+    "twilio": "^5.3.5",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.130",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "cross-env": "^10.1.0",
+    "eslint": "^8.56.0",
+    "serverless": "^3.38.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "serverless-dynamodb-local": "^0.2.40",
+    "serverless-offline": "^13.3.0",
+    "serverless-plugin-typescript": "^2.1.5",
+    "typescript": "^5.3.3"
+  }
+}
