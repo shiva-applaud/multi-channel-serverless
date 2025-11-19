@@ -13,8 +13,6 @@ credentials/
 *.pem
 *secret*
 *credential*
-client_secret.json
-gmail_tokens.json
 
 # Build output
 dist/
