@@ -20,7 +20,14 @@
     "start:with-db:ps1": "powershell -ExecutionPolicy Bypass -File start-server.ps1 with-db",
     "kill-ports": "node scripts/kill-ports.js",
     "local:with-db": "cross-env USE_DATABASE=true npm run local",
-    "local:no-db": "cross-env USE_DATABASE=false npm run local"
+    "local:no-db": "cross-env USE_DATABASE=false npm run local",
+    "test:email-poll": "npm run build && node scripts/test-webhookEmail-local.js",
+    "test:email-poll:ps1": "powershell -ExecutionPolicy Bypass -File scripts/test-webhookEmail-local.ps1",
+    "validate-env": "node scripts/validate-env.js",
+    "verify-delegation": "node scripts/verify-domain-delegation.js",
+    "gmail:token": "npx ts-node src/gmail-oauth/token-generator.ts",
+    "gmail:poll": "npx ts-node src/gmail-oauth/poller-lambda.ts",
+    "gmail:deploy": "cd src/gmail-oauth && serverless deploy"
   },
   "keywords": [
     "twilio",

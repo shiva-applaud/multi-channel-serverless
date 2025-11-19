@@ -23,29 +23,60 @@ export const getGmailClient = () => {
     throw new Error('GOOGLE_WORKSPACE_EMAIL must be set');
   }
 
+  let key: any = null;
+  
   try {
-    let key: any;
-    
     // Parse service account key
     // In Lambda, we expect JSON string. For local dev, can be file path
     if (credentials.startsWith('{')) {
       // JSON string
-      key = JSON.parse(credentials);
-    } else if (credentials.startsWith('./') || credentials.startsWith('/') || credentials.includes('\\')) {
+      try {
+        key = JSON.parse(credentials);
+      } catch (parseError) {
+        console.error('Failed to parse JSON string. First 100 chars:', credentials.substring(0, 100));
+        throw new Error(`Invalid JSON in GOOGLE_SERVICE_ACCOUNT_KEY: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      }
+    } else if (credentials.startsWith('./') || credentials.startsWith('/') || credentials.includes('\\') || credentials.includes(':')) {
       // File path (for local development)
+      // Check if it's a Windows path (C:\) or relative path
       try {
         const fs = require('fs');
-        const keyContent = fs.readFileSync(credentials, 'utf8');
-        key = JSON.parse(keyContent);
+        const path = require('path');
+        
+        // Resolve the path (handles relative paths)
+        const resolvedPath = path.resolve(credentials);
+        console.log(`Attempting to read service account key from file: ${resolvedPath}`);
+        
+        if (!fs.existsSync(resolvedPath)) {
+          throw new Error(`Service account key file not found: ${resolvedPath}`);
+        }
+        
+        const keyContent = fs.readFileSync(resolvedPath, 'utf8');
+        console.log(`Successfully read file, length: ${keyContent.length} characters`);
+        
+        // Trim whitespace that might cause issues
+        const trimmedContent = keyContent.trim();
+        
+        try {
+          key = JSON.parse(trimmedContent);
+        } catch (parseError) {
+          console.error('Failed to parse JSON from file. First 100 chars:', trimmedContent.substring(0, 100));
+          throw new Error(`Invalid JSON in service account key file: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+        }
       } catch (fileError) {
-        throw new Error(`Failed to read service account key file: ${credentials}`);
+        const errorMessage = fileError instanceof Error ? fileError.message : 'Unknown error';
+        throw new Error(`Failed to read service account key file: ${errorMessage}`);
       }
     } else {
       // Try parsing as JSON string (might not start with {)
+      // Could be a JSON string without leading whitespace or escaped JSON
       try {
-        key = JSON.parse(credentials);
-      } catch {
-        throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY must be a valid JSON string or file path');
+        // Trim and try parsing
+        const trimmed = credentials.trim();
+        key = JSON.parse(trimmed);
+      } catch (parseError) {
+        console.error('Failed to parse as JSON string. First 100 chars:', credentials.substring(0, 100));
+        throw new Error(`GOOGLE_SERVICE_ACCOUNT_KEY must be a valid JSON string or file path. Parse error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
       }
     }
 
@@ -63,10 +94,53 @@ export const getGmailClient = () => {
       userEmail // The email to impersonate (must be in Google Workspace)
     );
 
+    console.log('Gmail client JWT configured:', {
+      serviceAccountEmail: key.client_email,
+      clientId: key.client_id,
+      impersonatingUser: userEmail,
+      scopes: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
+    });
+
     gmailClient = google.gmail({ version: 'v1', auth: jwtClient });
     return gmailClient;
   } catch (error) {
     console.error('Error initializing Gmail client:', error);
+    
+    // Provide helpful error message for domain-wide delegation issues
+    if (error instanceof Error && (error.message.includes('unauthorized_client') || error.message.includes('unauthorized'))) {
+      let serviceAccountEmail = 'unknown';
+      let clientId = 'unknown';
+      
+      try {
+        // Try to get service account info from the parsed key
+        if (key && key.client_email) {
+          serviceAccountEmail = key.client_email;
+          clientId = key.client_id || 'unknown';
+        }
+      } catch (e) {
+        // If we can't get it, that's okay
+      }
+      
+      throw new Error(
+        `\n❌ Domain-wide delegation not configured!\n\n` +
+        `Service Account: ${serviceAccountEmail}\n` +
+        `Client ID: ${clientId}\n` +
+        `Workspace Email: ${userEmail}\n\n` +
+        `To fix this issue:\n` +
+        `1. Go to Google Cloud Console → IAM & Admin → Service Accounts\n` +
+        `2. Find service account: ${serviceAccountEmail}\n` +
+        `3. Enable "Domain-wide delegation" and note the Client ID: ${clientId}\n` +
+        `4. Go to Google Workspace Admin Console → Security → API Controls → Domain-wide Delegation\n` +
+        `5. Add Client ID: ${clientId}\n` +
+        `6. Grant these OAuth scopes:\n` +
+        `   - https://www.googleapis.com/auth/gmail.send\n` +
+        `   - https://www.googleapis.com/auth/gmail.readonly\n` +
+        `7. Wait 5-10 minutes for changes to propagate\n\n` +
+        `See DOMAIN_WIDE_DELEGATION_SETUP.md for detailed step-by-step instructions.\n\n` +
+        `Original error: ${error.message}`
+      );
+    }
+    
     throw new Error(`Failed to initialize Gmail client: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
@@ -194,7 +268,21 @@ export const listEmails = async (maxResults: number = 10, query?: string) => {
     return response.data.messages || [];
   } catch (error: any) {
     console.error('Error listing emails:', error);
-    throw new Error(`Failed to list emails: ${error.message}`);
+    
+    // Check for domain-wide delegation errors
+    if (error?.response?.data?.error === 'unauthorized_client' || 
+        error?.message?.includes('unauthorized_client')) {
+      throw new Error(
+        `Domain-wide delegation not configured. ` +
+        `The service account is not authorized to access Gmail API. ` +
+        `Please follow the setup instructions in DOMAIN_WIDE_DELEGATION_SETUP.md\n` +
+        `Service Account: ${process.env.GOOGLE_SERVICE_ACCOUNT_KEY ? 'Check your service account JSON' : 'Not configured'}\n` +
+        `Workspace Email: ${process.env.GOOGLE_WORKSPACE_EMAIL || 'Not configured'}\n` +
+        `Original error: ${error.message || error?.response?.data?.error_description || 'Unknown error'}`
+      );
+    }
+    
+    throw new Error(`Failed to list emails: ${error.message || error?.response?.data?.error_description || 'Unknown error'}`);
   }
 };
 

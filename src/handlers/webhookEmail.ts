@@ -1,126 +1,359 @@
-import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { EmailWebhookPayload, WebhookEmailResponse } from '../types/email';
-import { getGmailClient, getEmailMessage, listEmails } from '../utils/gmail';
+import { APIGatewayProxyEvent, APIGatewayProxyResult, EventBridgeEvent } from 'aws-lambda';
+import { WebhookEmailResponse } from '../types/email';
+import { getEmailMessage, listEmails, getDefaultSenderEmail } from '../utils/gmail';
 
 /**
- * Handler for Gmail Push notifications via Google Cloud Pub/Sub
- * This webhook receives notifications when new emails arrive
+ * Handler for polling Gmail inbox using Google APIs
+ * This Lambda function polls for emails and reads them using Gmail API
+ * Polls emails for the email address specified in GOOGLE_WORKSPACE_EMAIL environment variable
+ * Runs automatically every 1 minute via EventBridge schedule
  */
 export const handler = async (
-  event: APIGatewayProxyEvent
-): Promise<APIGatewayProxyResult> => {
+  event: APIGatewayProxyEvent | EventBridgeEvent<string, any>
+): Promise<APIGatewayProxyResult | void> => {
+  const startTime = Date.now();
+  
+  // Detect event type (must be outside try block to be accessible in catch)
+  const isScheduledEvent = 'source' in event && event.source === 'aws.events';
+  const isApiGatewayEvent = 'httpMethod' in event;
+  
+  console.log('=== Gmail Polling Lambda Started ===');
+  console.log('Event received:', {
+    eventType: isScheduledEvent ? 'EventBridge Scheduled Event' : isApiGatewayEvent ? 'API Gateway' : 'Unknown',
+    source: isScheduledEvent ? (event as EventBridgeEvent<string, any>).source : undefined,
+    time: isScheduledEvent ? (event as EventBridgeEvent<string, any>).time : undefined,
+    httpMethod: isApiGatewayEvent ? (event as APIGatewayProxyEvent).httpMethod : undefined,
+    path: isApiGatewayEvent ? (event as APIGatewayProxyEvent).path : undefined,
+    hasQueryParams: isApiGatewayEvent ? !!(event as APIGatewayProxyEvent).queryStringParameters : false,
+    hasBody: isApiGatewayEvent ? !!(event as APIGatewayProxyEvent).body : false,
+    requestId: isApiGatewayEvent ? (event as APIGatewayProxyEvent).requestContext?.requestId : undefined,
+  });
+
   try {
-    if (!event.body) {
-      return {
-        statusCode: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({
-          success: false,
-          error: 'Request body is missing',
-        } as WebhookEmailResponse),
-      };
+    // Get the email address from environment variable
+    console.log('Retrieving workspace email from environment variable...');
+    const workspaceEmail = getDefaultSenderEmail();
+    console.log('Workspace email retrieved:', workspaceEmail);
+    
+    // Parse query parameters from event (queryStringParameters, body, or EventBridge detail)
+    let maxResults = 10;
+    let query: string | undefined;
+    let includeFullBody = false;
+
+    // For scheduled events, check detail object; for API Gateway, check query/body
+    if (isScheduledEvent) {
+      const scheduledEvent = event as EventBridgeEvent<string, any>;
+      console.log('Processing EventBridge scheduled event');
+      if (scheduledEvent.detail) {
+        console.log('EventBridge detail:', scheduledEvent.detail);
+        if (scheduledEvent.detail.maxResults) {
+          maxResults = parseInt(scheduledEvent.detail.maxResults, 10);
+          console.log(`Parsed maxResults from EventBridge detail: ${maxResults}`);
+        }
+        if (scheduledEvent.detail.query) {
+          query = scheduledEvent.detail.query;
+          console.log(`Parsed query from EventBridge detail: ${query}`);
+        }
+        if (scheduledEvent.detail.includeFullBody === true) {
+          includeFullBody = true;
+          console.log('includeFullBody set to true from EventBridge detail');
+        }
+      } else {
+        console.log('No detail in EventBridge event, using defaults');
+      }
+    } else if (isApiGatewayEvent) {
+      const apiEvent = event as APIGatewayProxyEvent;
+      // Check query string parameters first
+      if (apiEvent.queryStringParameters) {
+        console.log('Parsing query string parameters:', apiEvent.queryStringParameters);
+        if (apiEvent.queryStringParameters.maxResults) {
+          maxResults = parseInt(apiEvent.queryStringParameters.maxResults, 10);
+          console.log(`Parsed maxResults from query params: ${maxResults}`);
+        }
+        if (apiEvent.queryStringParameters.query) {
+          query = apiEvent.queryStringParameters.query;
+          console.log(`Parsed query from query params: ${query}`);
+        }
+        if (apiEvent.queryStringParameters.includeFullBody === 'true') {
+          includeFullBody = true;
+          console.log('includeFullBody set to true from query params');
+        }
+      } else {
+        console.log('No query string parameters found');
+      }
+
+      // Check body parameters (for POST requests)
+      if (apiEvent.body) {
+        console.log('Attempting to parse event body...');
+        try {
+          const body = JSON.parse(apiEvent.body);
+          console.log('Event body parsed successfully:', Object.keys(body));
+          if (body.maxResults) {
+            maxResults = parseInt(body.maxResults, 10);
+            console.log(`Parsed maxResults from body: ${maxResults}`);
+          }
+          if (body.query) {
+            query = body.query;
+            console.log(`Parsed query from body: ${query}`);
+          }
+          if (body.includeFullBody === true) {
+            includeFullBody = true;
+            console.log('includeFullBody set to true from body');
+          }
+        } catch (parseError) {
+          console.warn('Could not parse event body as JSON, using query parameters only', {
+            error: parseError instanceof Error ? parseError.message : 'Unknown error',
+          });
+        }
+      } else {
+        console.log('No event body found');
+      }
     }
 
-    // Parse Pub/Sub message from Google Cloud
-    const body = JSON.parse(event.body);
+    // Validate maxResults
+    const originalMaxResults = maxResults;
+    if (maxResults < 1 || maxResults > 500) {
+      console.warn(`Invalid maxResults value: ${maxResults}, defaulting to 10`);
+      maxResults = 10; // Default to 10 if invalid
+    } else if (originalMaxResults !== maxResults) {
+      console.log(`maxResults validated and adjusted: ${originalMaxResults} -> ${maxResults}`);
+    }
+
+    console.log('=== Polling Configuration ===', {
+      email: workspaceEmail,
+      maxResults,
+      query: query || 'none',
+      includeFullBody,
+    });
+
+    // List emails using Gmail API
+    console.log('Calling Gmail API to list emails...');
+    const listStartTime = Date.now();
+    const emailList = await listEmails(maxResults, query);
+    const listDuration = Date.now() - listStartTime;
+    console.log(`Gmail API listEmails completed in ${listDuration}ms`, {
+      emailsFound: emailList.length,
+      requestedMaxResults: maxResults,
+    });
+
+    if (emailList.length === 0) {
+      console.log('No emails found matching the criteria');
+    } else {
+      console.log(`Starting to fetch full details for ${emailList.length} email(s)...`);
+    }
+
+    // Fetch full email details for each message
+    const emails: any[] = [];
+    let successCount = 0;
+    let errorCount = 0;
     
-    // Handle Pub/Sub message format
-    if (body.message && body.message.data) {
-      // Decode base64 message data
-      const messageData = Buffer.from(body.message.data, 'base64').toString('utf-8');
-      const pushNotification: EmailWebhookPayload = JSON.parse(messageData);
+    for (let i = 0; i < emailList.length; i++) {
+      const emailItem = emailList[i];
+      if (emailItem.id) {
+        console.log(`Processing email ${i + 1}/${emailList.length}`, {
+          messageId: emailItem.id,
+          threadId: emailItem.threadId,
+        });
+        
+        try {
+          const fetchStartTime = Date.now();
+          const fullEmail = await getEmailMessage(emailItem.id);
+          const fetchDuration = Date.now() - fetchStartTime;
+          console.log(`Fetched email ${emailItem.id} in ${fetchDuration}ms`);
+          
+          // Extract useful information
+          const headers = fullEmail.payload?.headers || [];
+          console.log(`Extracting headers from email ${emailItem.id}`, {
+            headerCount: headers.length,
+          });
+          
+          const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
+          const to = headers.find((h: any) => h.name === 'To')?.value || 'Unknown';
+          const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
+          const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+          const cc = headers.find((h: any) => h.name === 'Cc')?.value;
+          const replyTo = headers.find((h: any) => h.name === 'Reply-To')?.value;
 
-      console.log('Received Gmail Push notification:', {
-        emailAddress: pushNotification.emailAddress,
-        historyId: pushNotification.historyId,
-        expiration: pushNotification.expiration,
-      });
+          console.log(`Extracted email headers for ${emailItem.id}:`, {
+            from,
+            to,
+            subject,
+            date,
+            hasCc: !!cc,
+            hasReplyTo: !!replyTo,
+          });
 
-      // Get Gmail client
-      const gmail = getGmailClient();
-
-      // Get history to find new messages
-      const historyResponse = await gmail.users.history.list({
-        userId: 'me',
-        startHistoryId: pushNotification.historyId,
-        historyTypes: ['messageAdded'],
-      });
-
-      const history = historyResponse.data.history || [];
-      const messages: any[] = [];
-
-      // Process each history entry
-      for (const historyEntry of history) {
-        if (historyEntry.messagesAdded) {
-          for (const messageAdded of historyEntry.messagesAdded) {
-            if (messageAdded.message?.id) {
-              try {
-                const message = await getEmailMessage(messageAdded.message.id);
-                messages.push(message);
-              } catch (error) {
-                console.error(`Error fetching message ${messageAdded.message.id}:`, error);
+          // Extract email body if requested
+          let bodyText = '';
+          let bodyHtml = '';
+          if (includeFullBody && fullEmail.payload) {
+            console.log(`Extracting email body for ${emailItem.id}...`);
+            const bodyExtractStartTime = Date.now();
+            
+            const extractBody = (part: any): void => {
+              if (part.body?.data) {
+                const decoded = Buffer.from(part.body.data, 'base64').toString('utf-8');
+                if (part.mimeType === 'text/html') {
+                  bodyHtml = decoded;
+                  console.log(`Found HTML body part for ${emailItem.id}`, {
+                    size: decoded.length,
+                    mimeType: part.mimeType,
+                  });
+                } else if (part.mimeType === 'text/plain') {
+                  bodyText = decoded;
+                  console.log(`Found text body part for ${emailItem.id}`, {
+                    size: decoded.length,
+                    mimeType: part.mimeType,
+                  });
+                }
               }
+              if (part.parts) {
+                console.log(`Processing ${part.parts.length} sub-parts for ${emailItem.id}`);
+                part.parts.forEach(extractBody);
+              }
+            };
+            extractBody(fullEmail.payload);
+            
+            const bodyExtractDuration = Date.now() - bodyExtractStartTime;
+            console.log(`Body extraction completed for ${emailItem.id} in ${bodyExtractDuration}ms`, {
+              hasTextBody: !!bodyText,
+              hasHtmlBody: !!bodyHtml,
+              textBodyLength: bodyText.length,
+              htmlBodyLength: bodyHtml.length,
+            });
+          } else {
+            console.log(`Skipping body extraction for ${emailItem.id} (includeFullBody: ${includeFullBody})`);
+          }
+
+          const emailData: any = {
+            id: fullEmail.id,
+            threadId: fullEmail.threadId,
+            snippet: fullEmail.snippet,
+            from,
+            to,
+            subject,
+            date,
+            internalDate: fullEmail.internalDate,
+            sizeEstimate: fullEmail.sizeEstimate,
+            labelIds: fullEmail.labelIds,
+          };
+
+          if (cc) {
+            emailData.cc = cc;
+            console.log(`Added CC header for ${emailItem.id}: ${cc}`);
+          }
+          if (replyTo) {
+            emailData.replyTo = replyTo;
+            console.log(`Added Reply-To header for ${emailItem.id}: ${replyTo}`);
+          }
+          if (includeFullBody) {
+            if (bodyText) {
+              emailData.bodyText = bodyText;
+              console.log(`Added text body to email data for ${emailItem.id}`);
+            }
+            if (bodyHtml) {
+              emailData.bodyHtml = bodyHtml;
+              console.log(`Added HTML body to email data for ${emailItem.id}`);
             }
           }
-        }
-      }
 
-      // Log received emails
-      console.log(`Processed ${messages.length} new email(s)`);
-      for (const message of messages) {
-        const headers = message.payload?.headers || [];
-        const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
-        const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
-        
-        console.log('New email received:', {
-          messageId: message.id,
-          from,
-          subject,
-          snippet: message.snippet,
+          emails.push(emailData);
+          successCount++;
+
+          console.log('Email processed successfully:', {
+            messageId: fullEmail.id,
+            from,
+            subject,
+            date,
+            threadId: fullEmail.threadId,
+            labelIds: fullEmail.labelIds,
+            sizeEstimate: fullEmail.sizeEstimate,
+            snippetLength: fullEmail.snippet?.length || 0,
+          });
+        } catch (error) {
+          errorCount++;
+          console.error(`Error fetching email ${emailItem.id}:`, {
+            messageId: emailItem.id,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+          });
+          // Continue processing other emails even if one fails
+        }
+      } else {
+        console.warn(`Email item at index ${i} has no ID, skipping`, {
+          emailItem,
         });
       }
-
-      // TODO: Process emails as needed (store in database, trigger actions, etc.)
-      // Example: await processNewEmails(messages);
-
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({
-          success: true,
-          message: `Processed ${messages.length} new email(s)`,
-        } as WebhookEmailResponse),
-      };
-    } else {
-      // Handle direct webhook calls (for testing or alternative implementations)
-      console.log('Received direct webhook call:', body);
-
-      // Optionally, fetch recent emails
-      const recentEmails = await listEmails(10);
-      console.log(`Found ${recentEmails.length} recent emails`);
-
-      return {
-        statusCode: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({
-          success: true,
-          message: 'Webhook received successfully',
-        } as WebhookEmailResponse),
-      };
     }
-  } catch (error) {
-    console.error('Error processing email webhook:', error);
 
-    return {
+    console.log('=== Email Processing Summary ===', {
+      totalEmailsFound: emailList.length,
+      successfullyProcessed: successCount,
+      errors: errorCount,
+      emailsReturned: emails.length,
+    });
+
+    const totalDuration = Date.now() - startTime;
+    console.log('=== Preparing Success Response ===', {
+      emailCount: emails.length,
+      totalDurationMs: totalDuration,
+    });
+
+    // For scheduled events, we don't need to return an API Gateway response
+    if (isScheduledEvent) {
+      console.log('=== Gmail Polling Lambda Completed Successfully (Scheduled) ===', {
+        durationMs: totalDuration,
+        emailsReturned: emails.length,
+        workspaceEmail,
+      });
+      // Scheduled events don't require a return value, but we can return void
+      return;
+    }
+
+    // For API Gateway events, return proper response
+    const response: APIGatewayProxyResult = {
+      statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+      body: JSON.stringify({
+        success: true,
+        message: `Retrieved ${emails.length} email(s)`,
+        email: workspaceEmail,
+        count: emails.length,
+        emails,
+      } as WebhookEmailResponse & { email: string; count: number; emails: any[] }),
+    };
+
+    console.log('=== Gmail Polling Lambda Completed Successfully (API Gateway) ===', {
+      durationMs: totalDuration,
+      emailsReturned: emails.length,
+      workspaceEmail,
+    });
+
+    return response;
+  } catch (error) {
+    const totalDuration = Date.now() - startTime;
+    console.error('=== Error Polling Gmail Inbox ===', {
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      stack: error instanceof Error ? error.stack : undefined,
+      durationMs: totalDuration,
+    });
+
+    // For scheduled events, we can't return an error response
+    if (isScheduledEvent) {
+      console.log('=== Gmail Polling Lambda Failed (Scheduled) ===', {
+        durationMs: totalDuration,
+      });
+      // Throw error so Lambda marks the execution as failed
+      throw error;
+    }
+
+    // For API Gateway events, return proper error response
+    const errorResponse: APIGatewayProxyResult = {
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json',
@@ -131,6 +364,13 @@ export const handler = async (
         error: error instanceof Error ? error.message : 'Unknown error occurred',
       } as WebhookEmailResponse),
     };
+
+    console.log('=== Gmail Polling Lambda Failed (API Gateway) ===', {
+      statusCode: 500,
+      durationMs: totalDuration,
+    });
+
+    return errorResponse;
   }
 };
 

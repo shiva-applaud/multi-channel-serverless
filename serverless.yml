@@ -89,10 +89,11 @@ functions:
   webhookEmail:
     handler: src/handlers/webhookEmail.handler
     events:
-      - http:
-          path: webhook/email
-          method: post
-          cors: true
+      # Scheduled polling every 1 minute
+      - schedule:
+          rate: rate(1 minute)
+          enabled: true
+          description: Poll Gmail inbox every minute for new emails
 
 custom:
   serverless-offline:

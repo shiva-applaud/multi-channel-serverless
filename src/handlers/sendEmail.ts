@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { SendEmailRequest, SendEmailResponse } from '../types/email';
-import { sendEmail } from '../utils/gmail.ts';
+import { sendEmail } from '../utils/gmail';
 
 export const handler = async (
   event: APIGatewayProxyEvent

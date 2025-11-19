@@ -1,0 +1,44 @@
+service: gmail-poller
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  timeout: 30
+  memorySize: 256
+  environment:
+    # Gmail OAuth2 credentials - set these in AWS Lambda console or via serverless
+    GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, ''}
+    GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, ''}
+    GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
+    # Polling configuration
+    MAX_RESULTS: ${env:MAX_RESULTS, '5'}
+    # Optional: Set SENDER_EMAIL to filter by sender, leave empty to process all unread emails
+    SENDER_EMAIL: ${env:SENDER_EMAIL, 'anil.kashipaka@applaudhr.com'}
+
+functions:
+  gmailPoller:
+    handler: dist/gmail-oauth/poller-lambda.handler
+    events:
+      # Schedule to run every 1 minute
+      - schedule:
+          rate: rate(1 minute)
+          enabled: true
+          description: Poll Gmail inbox every minute for unread emails
+    # Optional: Also expose as HTTP endpoint for manual testing
+    # events:
+    #   - http:
+    #       path: gmail/poll
+    #       method: get
+    #       cors: true
+
+plugins:
+  - serverless-plugin-typescript
+
+custom:
+  serverlessPluginTypescript:
+    tsConfigFileLocation: './tsconfig.json'
+
