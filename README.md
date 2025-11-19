@@ -8,6 +8,7 @@ AWS Lambda functions for handling Twilio webhooks (SMS/WhatsApp) and Google Work
 - 💬 **WhatsApp Messaging** - Send and receive WhatsApp messages via Twilio
 - 📧 **Email Integration** - Send emails via Google Workspace Gmail API
 - 🔔 **Email Webhooks** - Receive real-time email notifications via Gmail Push notifications
+- 📬 **Gmail OAuth2 Poller** - Poll personal Gmail inbox every minute with OAuth2 authentication
 - 🚀 **Serverless** - Deploy to AWS Lambda with API Gateway
 - 🔧 **TypeScript** - Fully typed codebase
 - 🏠 **Local Development** - Test locally with serverless-offline
@@ -248,6 +249,12 @@ npx serverless logs -f webhookEmail -t
 │   │   ├── sendSms.ts          # Send SMS handler
 │   │   ├── sendWhatsApp.ts     # Send WhatsApp handler
 │   │   └── sendEmail.ts        # Send email handler
+│   ├── gmail-oauth/            # Gmail OAuth2 polling solution
+│   │   ├── gmail-client.ts     # Gmail OAuth2 client
+│   │   ├── poller-lambda.ts    # Lambda handler for polling
+│   │   ├── token-generator.ts  # OAuth2 token generator
+│   │   ├── serverless.yml      # Serverless config for poller
+│   │   └── README.md           # Gmail OAuth2 setup guide
 │   ├── types/
 │   │   ├── twilio.ts           # Twilio type definitions
 │   │   └── email.ts            # Email type definitions
@@ -265,11 +272,20 @@ npx serverless logs -f webhookEmail -t
 
 ## Scripts
 
+### General Scripts
+
 - `npm run build` - Build TypeScript to JavaScript
 - `npm run watch` - Watch mode for TypeScript compilation
 - `npm run start` - Start local serverless offline server
 - `npm run deploy` - Deploy to AWS
 - `npm run test` - Run tests (if configured)
+
+### Gmail OAuth2 Poller Scripts
+
+- `npm run gmail:token` - Generate OAuth2 tokens (run once)
+- `npm run gmail:poll` - Test poller locally
+- `npm run gmail:deploy` - Deploy Gmail poller Lambda to AWS
+- `npm run gmail:build` - Build Gmail OAuth2 code
 
 ## Gmail Push Notifications Setup
 
@@ -300,6 +316,88 @@ To receive email notifications via webhook:
    ```
 
 **Note:** Gmail watch expires after 7 days and needs to be renewed.
+
+## Gmail OAuth2 Poller
+
+A separate solution for polling personal Gmail inboxes using OAuth2 authentication (not service accounts). This is ideal for personal Gmail accounts or when you don't have Google Workspace.
+
+### Features
+
+- ✅ **OAuth2 Authentication** - Uses Desktop App credentials (no service accounts)
+- ✅ **Automatic Polling** - Runs every 1 minute via EventBridge schedule
+- ✅ **Email Sanitization** - Removes HTML tags and email signatures
+- ✅ **Auto Acknowledgment** - Sends acknowledgment emails to senders
+- ✅ **Configurable Filtering** - Optional sender email filtering
+- ✅ **Token Management** - Automatic token refresh handling
+
+### Quick Start
+
+1. **Generate OAuth2 Tokens:**
+   ```bash
+   cd src/gmail-oauth
+   npm run token
+   ```
+   Follow the prompts to authorize and get your refresh token.
+
+2. **Test Locally:**
+   ```bash
+   npm run gmail:poll
+   ```
+
+3. **Deploy to AWS Lambda:**
+   ```bash
+   npm run gmail:deploy
+   ```
+
+### Configuration
+
+Set environment variables in AWS Lambda or `.env` file:
+
+```env
+GMAIL_CLIENT_ID=your_client_id
+GMAIL_CLIENT_SECRET=your_client_secret
+GMAIL_REFRESH_TOKEN=your_refresh_token
+SENDER_EMAIL=optional@example.com  # Optional: filter by sender
+MAX_RESULTS=5                      # Max emails per poll
+```
+
+### How It Works
+
+1. **Token Generation** (`token-generator.ts`):
+   - Reads `client_secret.json` from Google Cloud Console
+   - Opens OAuth authorization URL
+   - Saves `access_token`, `refresh_token`, `expiry_date` to `gmail_tokens.json`
+
+2. **Gmail Client** (`gmail-client.ts`):
+   - Loads OAuth2 credentials (from env vars or files)
+   - Automatically refreshes access tokens
+   - Provides methods: `listEmails()`, `readEmail()`, `sendEmail()`, `sanitizeEmailBody()`
+
+3. **Poller Lambda** (`poller-lambda.ts`):
+   - Triggered every 1 minute by EventBridge
+   - Searches for unread emails (optionally filtered by sender)
+   - Processes each email:
+     - Reads and sanitizes body (removes HTML/signatures)
+     - Sends acknowledgment email to sender
+     - Marks email as read
+
+### Setup Instructions
+
+See `src/gmail-oauth/README.md` for detailed setup instructions including:
+- Creating OAuth2 Desktop App credentials
+- Generating refresh tokens
+- Deploying to AWS Lambda
+- Local testing
+
+### Key Differences from Google Workspace Solution
+
+| Feature | Google Workspace | Gmail OAuth2 Poller |
+|---------|----------------|---------------------|
+| Authentication | Service Account | OAuth2 Desktop App |
+| Account Type | Workspace only | Personal Gmail |
+| Setup Complexity | Domain-wide delegation | OAuth2 flow |
+| Email Access | Push (Pub/Sub) | Polling (EventBridge) |
+| Use Case | Enterprise/Workspace | Personal accounts |
 
 ## Troubleshooting
 
@@ -334,6 +432,8 @@ To receive email notifications via webhook:
 
 ## Environment Variables Reference
 
+### Twilio Variables
+
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `TWILIO_ACCOUNT_SID` | Twilio Account SID | Yes (for SMS/WhatsApp) |
@@ -341,8 +441,23 @@ To receive email notifications via webhook:
 | `TWILIO_WHATSAPP_AUTH_TOKEN` | Twilio WhatsApp Auth Token | Yes (for WhatsApp) |
 | `TWILIO_PHONE_NUMBER` | Default Twilio phone number | Yes (for SMS) |
 | `TWILIO_WHATSAPP_PHONE_NUMBER` | Default Twilio WhatsApp number | Yes (for WhatsApp) |
+
+### Google Workspace Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | Google service account JSON (file path or JSON string) | Yes (for Email) |
 | `GOOGLE_WORKSPACE_EMAIL` | Google Workspace email to impersonate | Yes (for Email) |
+
+### Gmail OAuth2 Poller Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `GMAIL_CLIENT_ID` | OAuth2 Client ID from Google Cloud Console | Yes |
+| `GMAIL_CLIENT_SECRET` | OAuth2 Client Secret from Google Cloud Console | Yes |
+| `GMAIL_REFRESH_TOKEN` | OAuth2 Refresh Token (from token-generator.ts) | Yes |
+| `SENDER_EMAIL` | Optional: Filter emails by sender address | No |
+| `MAX_RESULTS` | Maximum emails to process per poll (default: 5) | No |
 
 ## License
 
