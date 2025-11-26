@@ -12,16 +12,27 @@ provider:
   environment:
     TWILIO_ACCOUNT_SID: ${env:TWILIO_ACCOUNT_SID, ''}
     TWILIO_USER_SID: ${env:TWILIO_USER_SID, ''}
-    TWILIO_SMS_AUTH_TOKEN: ${env:TWILIO_SMS_AUTH_TOKEN, ''}
+    TWILIO_SMS_ACCOUNT_SID: ${env:TWILIO_SMS_ACCOUNT_SID, 'ACb3f6a27776cd66e5c9e04e79c98ddc7a'}
+    TWILIO_SMS_AUTH_TOKEN: ${env:TWILIO_SMS_AUTH_TOKEN, 'c18b2fba8c2496d6752df0b9dc3d335a'}
     TWILIO_WHATSAPP_AUTH_TOKEN: ${env:TWILIO_WHATSAPP_AUTH_TOKEN, ''}
-    TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, ''}
+    TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, '+13609951873'}
     TWILIO_WHATSAPP_PHONE_NUMBER: ${env:TWILIO_WHATSAPP_PHONE_NUMBER, ''}
-    GOOGLE_SERVICE_ACCOUNT_KEY: ${env:GOOGLE_SERVICE_ACCOUNT_KEY, ''}
+    # GOOGLE_SERVICE_ACCOUNT_KEY removed - now stored in Secrets Manager (google-service-account-key)
+    # Retrieve via: await getSecret('google-service-account-key') in src/utils/gmail.ts
     GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
+    # Gmail OAuth2 credentials - also stored in Secrets Manager but kept here for backward compatibility
+    # Priority: Secrets Manager > Environment Variables
+    GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, '903516254980-7ht5ql421suv6romfvrsef5feoef34c4.apps.googleusercontent.com'}
+    GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, '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'}
+    GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
+    GMAIL_REDIRECT_URI: ${env:GMAIL_REDIRECT_URI, ''}
+    MAX_RESULTS: ${env:MAX_RESULTS, '5'}
+    POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
+    SENDER_EMAIL: ${env:SENDER_EMAIL, 'shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com'}
   iam:
     role:
       statements:
-        # DynamoDB permissions (currently not used but reserved for future use)
+        # DynamoDB permissions for session ID storage
         - Effect: Allow
           Action:
             - dynamodb:PutItem
@@ -29,6 +40,16 @@ provider:
             - dynamodb:UpdateItem
             - dynamodb:Query
             - dynamodb:Scan
+          Resource:
+            - 'arn:aws:dynamodb:${self:provider.region}:*:table/${self:service}-${self:provider.stage}-session-store'
+            - 'arn:aws:dynamodb:${self:provider.region}:*:table/${self:service}-${self:provider.stage}-session-store/*'
+        # Secrets Manager permissions for Gmail OAuth token storage
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:PutSecretValue
+            - secretsmanager:CreateSecret
+            - secretsmanager:UpdateSecret
           Resource: '*'
 
 plugins:
@@ -48,6 +69,10 @@ functions:
 
   webhookSms:
     handler: src/handlers/webhookSms.handler
+    environment:
+      TWILIO_SMS_ACCOUNT_SID: ${env:TWILIO_SMS_ACCOUNT_SID, 'ACb3f6a27776cd66e5c9e04e79c98ddc7a'}
+      TWILIO_SMS_AUTH_TOKEN: ${env:TWILIO_SMS_AUTH_TOKEN, 'c18b2fba8c2496d6752df0b9dc3d335a'}
+      TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, '+13609951873'}
     events:
       - http:
           path: webhook/sms
@@ -80,20 +105,160 @@ functions:
 
   sendEmail:
     handler: src/handlers/sendEmail.handler
+    environment:
+      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
     events:
       - http:
           path: email/send
           method: post
           cors: true
+    iam:
+      role:
+        statements:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: '*'
+
+  queryApi:
+    handler: src/handlers/queryApi.handler
+    events:
+      - http:
+          path: query/api
+          method: post
+          cors: true
 
   webhookEmail:
     handler: src/handlers/webhookEmail.handler
+    environment:
+      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
+    # Events disabled to avoid duplicate replies (Gmail poller replaces this schedule)
+    # events:
+    #   - schedule:
+    #       rate: rate(1 minute)
+    #       enabled: true
+    #       description: Poll Gmail inbox every minute for new emails
+    iam:
+      role:
+        statements:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: '*'
+
+  gmailOAuth:
+    handler: src/handlers/gmailOAuth.handler
+    timeout: 30
+    memorySize: 256
+    environment:
+      GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, '903516254980-7ht5ql421suv6romfvrsef5feoef34c4.apps.googleusercontent.com'}
+      GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, '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'}
+      GMAIL_REDIRECT_URI: ${env:GMAIL_REDIRECT_URI, ''}
     events:
-      # Scheduled polling every 1 minute
+      - http:
+          path: gmail/oauth/authorize
+          method: get
+          cors: true
+      - http:
+          path: gmail/oauth/callback
+          method: get
+          cors: true
+      - http:
+          path: gmail/oauth/status
+          method: get
+          cors: true
+    iam:
+      role:
+        statements:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:PutSecretValue
+              - secretsmanager:CreateSecret
+              - secretsmanager:UpdateSecret
+            Resource: '*'
+
+  gmailTokenRefresh:
+    handler: src/handlers/gmailTokenRefresh.handler
+    timeout: 60
+    memorySize: 256
+    description: Automatically refreshes Gmail OAuth tokens daily and stores in Secrets Manager. Can also be triggered manually via GET request.
+    environment:
+      GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, '903516254980-7ht5ql421suv6romfvrsef5feoef34c4.apps.googleusercontent.com'}
+      GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, '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'}
+    events:
+      # Run twice per day at 2 AM UTC
       - schedule:
-          rate: rate(1 minute)
+          rate: cron(0 2 * * ? *)
           enabled: true
-          description: Poll Gmail inbox every minute for new emails
+          description: Refresh Gmail OAuth tokens daily at 2 AM UTC
+      # Run twice per day at 2 PM UTC
+      - schedule:
+          rate: cron(0 14 * * ? *)
+          enabled: true
+          description: Refresh Gmail OAuth tokens daily at 2 PM UTC
+      # Manual trigger via GET request
+      - http:
+          path: gmail/oauth/refresh
+          method: get
+          cors: true
+          description: Manually trigger Gmail OAuth token refresh
+    iam:
+      role:
+        statements:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:PutSecretValue
+              - secretsmanager:UpdateSecret
+            Resource: '*'
+
+  gmailPoller:
+    handler: src/gmail-oauth/poller-lambda.handler
+    timeout: 900  # 15 minutes - maximum Lambda timeout for continuous polling
+    memorySize: 512  # Increased memory for better performance
+    reservedConcurrency: 1  # Prevent overlapping poller executions that cause duplicate replies
+    environment:
+      GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, '903516254980-7ht5ql421suv6romfvrsef5feoef34c4.apps.googleusercontent.com'}
+      GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, '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'}
+      GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
+      MAX_RESULTS: ${env:MAX_RESULTS, '5'}
+      POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
+      SENDER_EMAIL: ${env:SENDER_EMAIL, 'shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com'}
+      SESSION_TABLE_NAME: ${self:service}-${self:provider.stage}-session-store
+    events:
+      # Schedule to restart every 14 minutes (keeps poller continuous without overlapping instances)
+      - schedule:
+          rate: rate(14 minutes)
+          enabled: true
+          description: Restart Gmail poller every 14 minutes for continuous polling without duplicates
+    iam:
+      role:
+        statements:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:PutSecretValue
+              - secretsmanager:UpdateSecret
+            Resource: '*'
+
+resources:
+  Resources:
+    SessionStoreTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${self:provider.stage}-session-store
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: threadKey
+            AttributeType: S
+        KeySchema:
+          - AttributeName: threadKey
+            KeyType: HASH
+        TimeToLiveSpecification:
+          Enabled: false
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
 
 custom:
   serverless-offline:

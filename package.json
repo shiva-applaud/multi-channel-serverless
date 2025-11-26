@@ -6,8 +6,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "predeploy": "powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1",
     "deploy": "serverless deploy",
+    "deploy:gmail": "serverless deploy function -f gmailPoller",
     "test": "jest",
     "start": "serverless offline start",
     "start:dynamodb": "start-dynamodb.bat",
@@ -27,7 +27,10 @@
     "verify-delegation": "node scripts/verify-domain-delegation.js",
     "gmail:token": "npx ts-node src/gmail-oauth/token-generator.ts",
     "gmail:poll": "npx ts-node src/gmail-oauth/poller-lambda.ts",
-    "gmail:deploy": "cd src/gmail-oauth && serverless deploy"
+    "gmail:deploy": "cd src/gmail-oauth && serverless deploy",
+    "gmail:store-secrets": "npx ts-node scripts/store-secrets.ts",
+    "test:poller-tokens": "npm run build && npx ts-node scripts/test-poller-token-check.ts",
+    "doctor": "serverless doctor"
   },
   "keywords": [
     "twilio",
@@ -40,6 +43,7 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.490.0",
+    "@aws-sdk/client-secrets-manager": "^3.939.0",
     "@aws-sdk/lib-dynamodb": "^3.490.0",
     "googleapis": "^128.0.0",
     "twilio": "^5.3.5",

@@ -1,23 +1,20 @@
 import { google } from 'googleapis';
 import { SendEmailRequest } from '../types/email';
+import { getGoogleServiceAccount } from './secretsManager';
 
 // Initialize Gmail client
 let gmailClient: any = null;
 
 /**
  * Initialize Gmail client with service account or OAuth2 credentials
+ * Priority: AWS Secrets Manager > Environment Variables > File Path
  */
-export const getGmailClient = () => {
+export const getGmailClient = async () => {
   if (gmailClient) {
     return gmailClient;
   }
 
-  const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   const userEmail = process.env.GOOGLE_WORKSPACE_EMAIL;
-
-  if (!credentials) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY must be set');
-  }
 
   if (!userEmail) {
     throw new Error('GOOGLE_WORKSPACE_EMAIL must be set');
@@ -26,57 +23,76 @@ export const getGmailClient = () => {
   let key: any = null;
   
   try {
-    // Parse service account key
-    // In Lambda, we expect JSON string. For local dev, can be file path
-    if (credentials.startsWith('{')) {
-      // JSON string
-      try {
-        key = JSON.parse(credentials);
-      } catch (parseError) {
-        console.error('Failed to parse JSON string. First 100 chars:', credentials.substring(0, 100));
-        throw new Error(`Invalid JSON in GOOGLE_SERVICE_ACCOUNT_KEY: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+    // Try to load from Secrets Manager first
+    try {
+      key = await getGoogleServiceAccount();
+      if (key) {
+        console.log('✓ Loaded service account from Secrets Manager');
       }
-    } else if (credentials.startsWith('./') || credentials.startsWith('/') || credentials.includes('\\') || credentials.includes(':')) {
-      // File path (for local development)
-      // Check if it's a Windows path (C:\) or relative path
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        
-        // Resolve the path (handles relative paths)
-        const resolvedPath = path.resolve(credentials);
-        console.log(`Attempting to read service account key from file: ${resolvedPath}`);
-        
-        if (!fs.existsSync(resolvedPath)) {
-          throw new Error(`Service account key file not found: ${resolvedPath}`);
-        }
-        
-        const keyContent = fs.readFileSync(resolvedPath, 'utf8');
-        console.log(`Successfully read file, length: ${keyContent.length} characters`);
-        
-        // Trim whitespace that might cause issues
-        const trimmedContent = keyContent.trim();
-        
+    } catch (secretsError) {
+      console.log('Could not load from Secrets Manager, trying fallback methods');
+    }
+
+    // Fallback to environment variable or file path
+    if (!key) {
+      const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      
+      if (!credentials) {
+        throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY must be set or stored in Secrets Manager');
+      }
+
+      // Parse service account key
+      // In Lambda, we expect JSON string. For local dev, can be file path
+      if (credentials.startsWith('{')) {
+        // JSON string
         try {
-          key = JSON.parse(trimmedContent);
+          key = JSON.parse(credentials);
         } catch (parseError) {
-          console.error('Failed to parse JSON from file. First 100 chars:', trimmedContent.substring(0, 100));
-          throw new Error(`Invalid JSON in service account key file: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          console.error('Failed to parse JSON string. First 100 chars:', credentials.substring(0, 100));
+          throw new Error(`Invalid JSON in GOOGLE_SERVICE_ACCOUNT_KEY: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
         }
-      } catch (fileError) {
-        const errorMessage = fileError instanceof Error ? fileError.message : 'Unknown error';
-        throw new Error(`Failed to read service account key file: ${errorMessage}`);
-      }
-    } else {
-      // Try parsing as JSON string (might not start with {)
-      // Could be a JSON string without leading whitespace or escaped JSON
-      try {
-        // Trim and try parsing
-        const trimmed = credentials.trim();
-        key = JSON.parse(trimmed);
-      } catch (parseError) {
-        console.error('Failed to parse as JSON string. First 100 chars:', credentials.substring(0, 100));
-        throw new Error(`GOOGLE_SERVICE_ACCOUNT_KEY must be a valid JSON string or file path. Parse error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      } else if (credentials.startsWith('./') || credentials.startsWith('/') || credentials.includes('\\') || credentials.includes(':')) {
+        // File path (for local development)
+        // Check if it's a Windows path (C:\) or relative path
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Resolve the path (handles relative paths)
+          const resolvedPath = path.resolve(credentials);
+          console.log(`Attempting to read service account key from file: ${resolvedPath}`);
+          
+          if (!fs.existsSync(resolvedPath)) {
+            throw new Error(`Service account key file not found: ${resolvedPath}`);
+          }
+          
+          const keyContent = fs.readFileSync(resolvedPath, 'utf8');
+          console.log(`Successfully read file, length: ${keyContent.length} characters`);
+          
+          // Trim whitespace that might cause issues
+          const trimmedContent = keyContent.trim();
+          
+          try {
+            key = JSON.parse(trimmedContent);
+          } catch (parseError) {
+            console.error('Failed to parse JSON from file. First 100 chars:', trimmedContent.substring(0, 100));
+            throw new Error(`Invalid JSON in service account key file: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          }
+        } catch (fileError) {
+          const errorMessage = fileError instanceof Error ? fileError.message : 'Unknown error';
+          throw new Error(`Failed to read service account key file: ${errorMessage}`);
+        }
+      } else {
+        // Try parsing as JSON string (might not start with {)
+        // Could be a JSON string without leading whitespace or escaped JSON
+        try {
+          // Trim and try parsing
+          const trimmed = credentials.trim();
+          key = JSON.parse(trimmed);
+        } catch (parseError) {
+          console.error('Failed to parse as JSON string. First 100 chars:', credentials.substring(0, 100));
+          throw new Error(`GOOGLE_SERVICE_ACCOUNT_KEY must be a valid JSON string or file path. Parse error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+        }
       }
     }
 
@@ -207,7 +223,7 @@ const createEmailMessage = (request: SendEmailRequest): string => {
  * Send email using Gmail API
  */
 export const sendEmail = async (request: SendEmailRequest): Promise<string> => {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const message = createEmailMessage(request);
 
   // Encode message in base64url format (RFC 4648)
@@ -236,7 +252,7 @@ export const sendEmail = async (request: SendEmailRequest): Promise<string> => {
  * Get email message by ID
  */
 export const getEmailMessage = async (messageId: string) => {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   
   try {
     const response = await gmail.users.messages.get({
@@ -256,7 +272,7 @@ export const getEmailMessage = async (messageId: string) => {
  * List recent emails
  */
 export const listEmails = async (maxResults: number = 10, query?: string) => {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   
   try {
     const response = await gmail.users.messages.list({

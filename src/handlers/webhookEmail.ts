@@ -1,6 +1,8 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, EventBridgeEvent } from 'aws-lambda';
 import { WebhookEmailResponse } from '../types/email';
 import { getEmailMessage, listEmails, getDefaultSenderEmail } from '../utils/gmail';
+import { callQueryApi } from '../utils/queryApi';
+import { generateEmailSessionId } from '../utils/sessionId';
 
 /**
  * Handler for polling Gmail inbox using Google APIs
@@ -270,6 +272,40 @@ export const handler = async (
             sizeEstimate: fullEmail.sizeEstimate,
             snippetLength: fullEmail.snippet?.length || 0,
           });
+
+          // Generate session ID for email conversation (use Gmail threadId if available)
+          const threadId = fullEmail.threadId || emailItem.threadId || undefined;
+          const sessionId = generateEmailSessionId(threadId, from);
+          console.log('Email Session ID:', {
+            messageId: fullEmail.id,
+            threadId: threadId || 'not available',
+            sessionId,
+          });
+
+          // Call Query API with email text (prefer bodyText, then snippet, then subject)
+          const emailText = bodyText || fullEmail.snippet || subject;
+          if (emailText && emailText.trim()) {
+            try {
+              console.log('Calling Query API with email text:', {
+                messageId: fullEmail.id,
+                textSource: bodyText ? 'bodyText' : fullEmail.snippet ? 'snippet' : 'subject',
+                query: emailText.substring(0, 100) + (emailText.length > 100 ? '...' : ''),
+                sessionId,
+              });
+              const queryApiResponse = await callQueryApi(emailText, '1892', sessionId);
+              console.log('Query API response for email:', {
+                messageId: fullEmail.id,
+                sessionId,
+                response: queryApiResponse,
+              });
+            } catch (queryError) {
+              console.error('Error calling Query API for email:', {
+                messageId: fullEmail.id,
+                error: queryError instanceof Error ? queryError.message : 'Unknown error',
+              });
+              // Continue processing other emails even if query API fails
+            }
+          }
         } catch (error) {
           errorCount++;
           console.error(`Error fetching email ${emailItem.id}:`, {

@@ -1,6 +1,8 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { TwilioWebhookPayload, WebhookResponse } from '../types/twilio';
 import { getWhatsAppClient, getDefaultWhatsAppNumber } from '../utils/twilio';
+import { callQueryApi, getResponseText } from '../utils/queryApi';
+import { generateWhatsAppSessionId } from '../utils/sessionId';
 
 export const handler = async (
   event: APIGatewayProxyEvent
@@ -69,10 +71,46 @@ export const handler = async (
       numMedia: payload.NumMedia,
     });
 
+    // Generate session ID for WhatsApp conversation
+    const sessionId = generateWhatsAppSessionId(payload.From, payload.WaId);
+    console.log('WhatsApp Session ID:', sessionId);
+
+    // Call Query API with WhatsApp message text and send response back
+    let replyMessage = 'Thank you for your message. We have received it and will get back to you soon.';
+    
+    if (payload.Body && payload.Body.trim()) {
+      try {
+        console.log('Calling Query API with WhatsApp text:', {
+          query: payload.Body.substring(0, 100) + (payload.Body.length > 100 ? '...' : ''),
+          sessionId,
+        });
+        const queryApiResponse = await callQueryApi(payload.Body, '1892', sessionId);
+        console.log('Query API response for WhatsApp:', {
+          messageSid: payload.MessageSid,
+          sessionId,
+          success: queryApiResponse.success,
+          hasAgentResponse: !!queryApiResponse.agent_response,
+        });
+        
+        // Extract response text from API response
+        replyMessage = getResponseText(
+          queryApiResponse,
+          'Thank you for your message. We have received it and will get back to you soon.'
+        );
+      } catch (queryError) {
+        console.error('Error calling Query API for WhatsApp:', {
+          messageSid: payload.MessageSid,
+          error: queryError instanceof Error ? queryError.message : 'Unknown error',
+        });
+        // Use fallback message if API call fails
+        replyMessage = 'Thank you for your message. We encountered an issue processing your request, but we have received your message.';
+      }
+    }
+
     // TODO: Store WhatsApp message in DynamoDB or process as needed
     // Example: await storeWhatsAppMessage(payload);
 
-    // Send a dummy WhatsApp message back to the sender
+    // Send WhatsApp reply with API response
     try {
       const fromNumber = getDefaultWhatsAppNumber();
       // Extract phone number from WhatsApp format (whatsapp:+1234567890 -> +1234567890)
@@ -81,23 +119,22 @@ export const handler = async (
         : payload.From;
       const formattedTo = `whatsapp:${senderNumber}`;
       
-      const dummyMessage = `Thank you for your WhatsApp message! We received: "${payload.Body}". This is an automated response.`;
-      
       const whatsappClient = getWhatsAppClient();
       const sentMessage = await whatsappClient.messages.create({
-        body: dummyMessage,
+        body: replyMessage,
         from: fromNumber,
         to: formattedTo,
       });
 
-      console.log('Dummy WhatsApp message sent successfully:', {
+      console.log('WhatsApp reply sent successfully:', {
         messageSid: sentMessage.sid,
         to: formattedTo,
         from: fromNumber,
         status: sentMessage.status,
+        replyLength: replyMessage.length,
       });
     } catch (sendError) {
-      console.error('Error sending dummy WhatsApp message:', sendError);
+      console.error('Error sending WhatsApp reply:', sendError);
       // Continue execution even if sending fails
     }
 

@@ -36,6 +36,15 @@ export class GmailClient {
   private gmail!: gmail_v1.Gmail; // Initialized in initializeClient()
 
   constructor(config?: GmailClientConfig) {
+    // This will be initialized asynchronously
+    // For backward compatibility, we'll load synchronously first, then try async
+    this.initializeSync(config);
+  }
+
+  /**
+   * Initialize synchronously (for backward compatibility)
+   */
+  private initializeSync(config?: GmailClientConfig) {
     // Load credentials with fallback priority:
     // 1. Config object
     // 2. Environment variables
@@ -58,11 +67,36 @@ export class GmailClient {
         'Missing Gmail OAuth2 credentials. Provide via:\n' +
         '1. Config object: new GmailClient({ clientId, clientSecret, refreshToken })\n' +
         '2. Environment variables: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN\n' +
-        '3. Files: client_secret.json and gmail_tokens.json in project root'
+        '3. AWS Secrets Manager: gmail-oauth-credentials and gmail-oauth-tokens\n' +
+        '4. Files: client_secret.json and gmail_tokens.json in project root'
       );
     }
 
     this.initializeClient(clientId, clientSecret, refreshToken);
+  }
+
+  /**
+   * Initialize asynchronously from Secrets Manager (call this after construction if needed)
+   */
+  async initializeFromSecretsManager(): Promise<void> {
+    try {
+      const { getGmailOAuthCredentials, getGmailTokens } = await import('../utils/secretsManager');
+      
+      const oauthCreds = await getGmailOAuthCredentials();
+      const tokens = await getGmailTokens();
+
+      if (oauthCreds && tokens?.refresh_token) {
+        this.initializeClient(
+          oauthCreds.client_id,
+          oauthCreds.client_secret,
+          tokens.refresh_token
+        );
+        console.log('✓ Loaded Gmail OAuth credentials from Secrets Manager');
+        return;
+      }
+    } catch (error) {
+      console.warn('Could not load from Secrets Manager, using existing credentials:', error);
+    }
   }
 
   /**
@@ -218,14 +252,24 @@ export class GmailClient {
    * - The message must be base64url encoded
    * - Headers include: From, To, Subject, Content-Type
    * - Body can be plain text or HTML
+   * - For threading: Include In-Reply-To and References headers
    * 
    * @param to - Recipient email address
    * @param subject - Email subject
    * @param body - Email body (plain text)
    * @param from - Optional sender email (defaults to authenticated user)
+   * @param inReplyTo - Optional Message-ID of the email being replied to (for threading)
+   * @param references - Optional References header value (for threading chain)
    * @returns Message ID of sent email
    */
-  async sendEmail(to: string, subject: string, body: string, from?: string): Promise<string> {
+  async sendEmail(
+    to: string, 
+    subject: string, 
+    body: string, 
+    from?: string,
+    inReplyTo?: string,
+    references?: string
+  ): Promise<string> {
     try {
       // Get the authenticated user's email if 'from' is not provided
       let fromEmail = from;
@@ -236,12 +280,24 @@ export class GmailClient {
 
       // Create RFC 2822 formatted email message
       // Format: headers + blank line + body
-      const message = [
+      const messageHeaders: string[] = [
         `From: ${fromEmail}`,
         `To: ${to}`,
         `Subject: ${subject}`,
         `Content-Type: text/plain; charset=utf-8`,
         `Content-Transfer-Encoding: 7bit`,
+      ];
+
+      // Add threading headers if provided
+      if (inReplyTo) {
+        messageHeaders.push(`In-Reply-To: ${inReplyTo}`);
+      }
+      if (references) {
+        messageHeaders.push(`References: ${references}`);
+      }
+
+      const message = [
+        ...messageHeaders,
         '', // Blank line between headers and body
         body,
       ].join('\n');

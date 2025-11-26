@@ -7,8 +7,8 @@ provider:
   runtime: nodejs20.x
   region: us-east-1
   stage: ${opt:stage, 'dev'}
-  timeout: 30
-  memorySize: 256
+  timeout: 900  # 15 minutes - maximum Lambda timeout for continuous polling
+  memorySize: 512  # Increased memory for better performance
   environment:
     # Gmail OAuth2 credentials - set these in AWS Lambda console or via serverless
     GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, ''}
@@ -16,18 +16,20 @@ provider:
     GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
     # Polling configuration
     MAX_RESULTS: ${env:MAX_RESULTS, '5'}
+    POLL_INTERVAL: ${env:POLL_INTERVAL, '5000'}  # Milliseconds between polls (default: 10 seconds)
     # Optional: Set SENDER_EMAIL to filter by sender, leave empty to process all unread emails
     SENDER_EMAIL: ${env:SENDER_EMAIL, 'anil.kashipaka@applaudhr.com'}
 
 functions:
   gmailPoller:
     handler: dist/gmail-oauth/poller-lambda.handler
+    reservedConcurrency: 1  # Prevent overlapping executions when scheduled frequently
     events:
-      # Schedule to run every 1 minute
+      # Schedule to restart every 14 minutes (avoids overlap while keeping continuous polling)
       - schedule:
-          rate: rate(1 minute)
+          rate: rate(14 minutes)
           enabled: true
-          description: Poll Gmail inbox every minute for unread emails
+          description: Restart Gmail poller every 14 minutes for continuous polling without duplicates
     # Optional: Also expose as HTTP endpoint for manual testing
     # events:
     #   - http:
