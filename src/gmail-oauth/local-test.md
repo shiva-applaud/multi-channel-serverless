@@ -21,7 +21,7 @@ Guide for testing the Gmail poller on your local machine before deploying to AWS
 Create a `.env` file in the project root (or export them in your terminal):
 
 ```env
-SENDER_EMAIL=shiva.prabhakar@applaudhr.com  # Optional (defaults to shiva.prabhakar@applaudhr.com)
+SENDER_EMAIL=hr-help-demo@applaudhr.com  # Optional (defaults to hr-help-demo@applaudhr.com)
 MAX_RESULTS=5                                 # Optional (defaults to 5)
 ```
 
@@ -31,19 +31,19 @@ MAX_RESULTS=5                                 # Optional (defaults to 5)
 
 **Windows PowerShell:**
 ```powershell
-$env:SENDER_EMAIL="shiva.prabhakar@applaudhr.com"  # Optional
+$env:SENDER_EMAIL="hr-help-demo@applaudhr.com"  # Optional
 $env:MAX_RESULTS="5"                                # Optional
 ```
 
 **Windows CMD:**
 ```cmd
-set SENDER_EMAIL=shiva.prabhakar@applaudhr.com  # Optional
+set SENDER_EMAIL=hr-help-demo@applaudhr.com  # Optional
 set MAX_RESULTS=5                                 # Optional
 ```
 
 **Linux/Mac:**
 ```bash
-export SENDER_EMAIL="shiva.prabhakar@applaudhr.com"  # Optional
+export SENDER_EMAIL="hr-help-demo@applaudhr.com"  # Optional
 export MAX_RESULTS="5"                                # Optional
 ```
 
@@ -83,13 +83,13 @@ Event: {}
 Context: { requestId: 'local-test', functionName: 'gmail-poller-local', ... }
 ✓ Gmail client initialized
 📧 Polling Configuration:
-   Sender Email: shiva.prabhakar@applaudhr.com
-   Query: "from:shiva.prabhakar@applaudhr.com is:unread"
+   Sender Email: hr-help-demo@applaudhr.com
+   Query: "from:hr-help-demo@applaudhr.com is:unread"
    Max Results: 5
 ✓ Found 2 unread email(s)
 
 📖 Processing email 1/2 (ID: 18a1b2c3d4e5f6g7)
-   From: shiva.prabhakar@applaudhr.com
+   From: hr-help-demo@applaudhr.com
    Subject: Test Email
    Date: Wed, 19 Nov 2025 10:00:00 +0000
    Body preview: This is a test email...
@@ -97,8 +97,8 @@ Context: { requestId: 'local-test', functionName: 'gmail-poller-local', ... }
    ✓ Email processed successfully
 
 === Gmail Poller Summary ===
-   Sender Email: shiva.prabhakar@applaudhr.com
-   Query: from:shiva.prabhakar@applaudhr.com is:unread
+   Sender Email: hr-help-demo@applaudhr.com
+   Query: from:hr-help-demo@applaudhr.com is:unread
    Emails found: 2
    Emails processed: 2
    Errors: 0

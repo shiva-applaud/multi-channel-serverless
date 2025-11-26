@@ -50,3 +50,8 @@ export const getDefaultWhatsAppNumber = (): string => {
   return whatsappNumber.startsWith('whatsapp:') ? whatsappNumber : `whatsapp:${whatsappNumber}`;
 };
 
+export const getMessagingServiceSid = (): string | undefined => {
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  return messagingServiceSid && messagingServiceSid.trim() !== '' ? messagingServiceSid : undefined;
+};
+

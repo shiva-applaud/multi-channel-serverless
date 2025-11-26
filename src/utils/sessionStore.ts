@@ -2,7 +2,8 @@
  * Session ID Storage Utility
  * 
  * Stores email thread session IDs in DynamoDB for persistence across Lambda invocations.
- * Uses thread identifiers (subject, in-reply-to, references) to maintain conversation context.
+ * Uses normalized subject + sender email to identify threads.
+ * Does NOT use references, in-reply-to, or threadId as they change with each message.
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -18,7 +19,7 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const TABLE_NAME = process.env.SESSION_TABLE_NAME || 'gmail-session-store';
 
 interface ThreadIdentifier {
-  threadId?: string; // Gmail thread ID (most reliable identifier)
+  threadId?: string; // Gmail thread ID (not used for key generation, stored for reference only)
   subject: string;
   inReplyTo?: string;
   references?: string;
@@ -39,42 +40,26 @@ interface SessionRecord {
 
 /**
  * Generate a unique thread key from email headers
- * Prioritizes Gmail threadId (most reliable), then falls back to subject, in-reply-to, and references
+ * Uses normalized subject + sender email only
+ * Does NOT use references or in-reply-to as they change with each message
+ * Does NOT use threadId as it changes when we send replies
  */
 export function generateThreadKey(identifier: ThreadIdentifier): string {
-  // PRIORITY 1: Use Gmail threadId if available (most reliable identifier)
-  if (identifier.threadId) {
-    return `threadId:${identifier.threadId}`;
-  }
-  
-  // PRIORITY 2: Use first reference as thread root (original message ID)
-  if (identifier.references) {
-    const refs = identifier.references.split(/\s+/).filter(Boolean);
-    if (refs.length > 0) {
-      // Use the first reference as the thread root
-      return `ref:${refs[0].trim()}`;
-    }
-  }
-  
-  // PRIORITY 3: Use in-reply-to header
-  if (identifier.inReplyTo) {
-    return `replyTo:${identifier.inReplyTo.trim()}`;
-  }
-  
-  // PRIORITY 4: Fallback to subject + sender email
   const parts: string[] = [];
   
-  // Normalize subject (remove Re:, Fwd:, etc. and whitespace)
+  // PRIORITY 1: Normalize subject (remove Re:, Fwd:, etc. and whitespace)
+  // "Re: login bug" and "login bug" should be treated as the same
   const normalizedSubject = (identifier.subject || '')
     .trim()
-    .replace(/^(re|fwd?):\s*/i, '')
+    .replace(/^(re|fwd?):\s*/i, '') // Remove Re:, Fwd:, etc.
+    .replace(/\s+/g, ' ') // Normalize whitespace
     .toLowerCase();
   
   if (normalizedSubject) {
     parts.push(`subject:${normalizedSubject}`);
   }
   
-  // Add sender email if available (for cases where same subject is used by different senders)
+  // PRIORITY 2: Add sender email (to differentiate between different senders with same subject)
   if (identifier.senderEmail) {
     parts.push(`from:${identifier.senderEmail.toLowerCase()}`);
   }

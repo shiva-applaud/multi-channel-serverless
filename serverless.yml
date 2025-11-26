@@ -17,9 +17,10 @@ provider:
     TWILIO_WHATSAPP_AUTH_TOKEN: ${env:TWILIO_WHATSAPP_AUTH_TOKEN, ''}
     TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, '+13609951873'}
     TWILIO_WHATSAPP_PHONE_NUMBER: ${env:TWILIO_WHATSAPP_PHONE_NUMBER, ''}
+    TWILIO_MESSAGING_SERVICE_SID: ${env:TWILIO_MESSAGING_SERVICE_SID, 'MG46adbf526a9b26fb55bb17cd29cff8a6'}
     # GOOGLE_SERVICE_ACCOUNT_KEY removed - now stored in Secrets Manager (google-service-account-key)
     # Retrieve via: await getSecret('google-service-account-key') in src/utils/gmail.ts
-    GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
+    GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, 'hr-help-demo@applaudhr.com'}
     # Gmail OAuth2 credentials - also stored in Secrets Manager but kept here for backward compatibility
     # Priority: Secrets Manager > Environment Variables
     GMAIL_CLIENT_ID: ${env:GMAIL_CLIENT_ID, '903516254980-7ht5ql421suv6romfvrsef5feoef34c4.apps.googleusercontent.com'}
@@ -73,6 +74,7 @@ functions:
       TWILIO_SMS_ACCOUNT_SID: ${env:TWILIO_SMS_ACCOUNT_SID, 'ACb3f6a27776cd66e5c9e04e79c98ddc7a'}
       TWILIO_SMS_AUTH_TOKEN: ${env:TWILIO_SMS_AUTH_TOKEN, 'c18b2fba8c2496d6752df0b9dc3d335a'}
       TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, '+13609951873'}
+      TWILIO_MESSAGING_SERVICE_SID: ${env:TWILIO_MESSAGING_SERVICE_SID, 'MG46adbf526a9b26fb55bb17cd29cff8a6'}
     events:
       - http:
           path: webhook/sms
@@ -106,7 +108,7 @@ functions:
   sendEmail:
     handler: src/handlers/sendEmail.handler
     environment:
-      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
+      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, 'hr-help-demo@applaudhr.com'}
     events:
       - http:
           path: email/send
@@ -131,7 +133,7 @@ functions:
   webhookEmail:
     handler: src/handlers/webhookEmail.handler
     environment:
-      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, ''}
+      GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, 'hr-help-demo@applaudhr.com'}
     # Events disabled to avoid duplicate replies (Gmail poller replaces this schedule)
     # events:
     #   - schedule:

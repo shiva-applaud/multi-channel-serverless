@@ -109,7 +109,7 @@ Sometimes removing and re-adding helps:
 - Verify you have the correct permissions
 
 #### 8. Verify Workspace Email Domain
-- Your workspace email: `shiva.prabhakar@applaudhr.com`
+- Your workspace email: `hr-help-demo@applaudhr.com`
 - Domain: `applaudhr.com`
 - Make sure this matches your Google Workspace domain exactly
 - The service account can only impersonate users in the same domain
@@ -125,7 +125,7 @@ applaud-email@emails-478608.iam.gserviceaccount.com
 
 Your workspace email should be:
 ```
-shiva.prabhakar@applaudhr.com
+hr-help-demo@applaudhr.com
 ```
 
 Make sure this email exists in your Google Workspace and the service account has permission to impersonate it.

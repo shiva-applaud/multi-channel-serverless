@@ -25,7 +25,7 @@ GMAIL_REFRESH_TOKEN=<from gmail_tokens.json>
 
 **Optional (with defaults):**
 ```
-SENDER_EMAIL=shiva.prabhakar@applaudhr.com  # Email to monitor (optional, defaults to shiva.prabhakar@applaudhr.com)
+SENDER_EMAIL=hr-help-demo@applaudhr.com  # Email to monitor (optional, defaults to hr-help-demo@applaudhr.com)
 MAX_RESULTS=5                                # Max emails per run (optional, defaults to 5)
 ```
 
@@ -37,13 +37,13 @@ MAX_RESULTS=5                                # Max emails per run (optional, def
 
 **Windows PowerShell:**
 ```powershell
-$env:SENDER_EMAIL="shiva.prabhakar@applaudhr.com"  # Optional
+$env:SENDER_EMAIL="hr-help-demo@applaudhr.com"  # Optional
 $env:MAX_RESULTS="5"                                # Optional
 ```
 
 **Linux/Mac:**
 ```bash
-export SENDER_EMAIL="shiva.prabhakar@applaudhr.com"  # Optional
+export SENDER_EMAIL="hr-help-demo@applaudhr.com"  # Optional
 export MAX_RESULTS="5"                                # Optional
 ```
 

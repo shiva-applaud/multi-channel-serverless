@@ -90,7 +90,7 @@ GMAIL_REFRESH_TOKEN=<from gmail_tokens.json>
 
 ### Optional Configuration Variables:
 ```
-SENDER_EMAIL=shiva.prabhakar@applaudhr.com  # Email to monitor (default)
+SENDER_EMAIL=hr-help-demo@applaudhr.com  # Email to monitor (default)
 MAX_RESULTS=5                                 # Max emails per run (default: 5)
 ```
 
@@ -212,7 +212,7 @@ project-root/
 
 ### Configuration
 
-- **SENDER_EMAIL**: Email address to monitor (default: `shiva.prabhakar@applaudhr.com`)
+- **SENDER_EMAIL**: Email address to monitor (default: `hr-help-demo@applaudhr.com`)
 - **MAX_RESULTS**: Maximum emails to process per run (default: `5`)
 - **Query**: `from:{SENDER_EMAIL} is:unread` - Filters for unread emails from specific sender
 

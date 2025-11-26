@@ -8,6 +8,7 @@
     "watch": "tsc --watch",
     "deploy": "serverless deploy",
     "deploy:gmail": "serverless deploy function -f gmailPoller",
+    "deploy:sms": "serverless deploy function -f webhookSms",
     "test": "jest",
     "start": "serverless offline start",
     "start:dynamodb": "start-dynamodb.bat",

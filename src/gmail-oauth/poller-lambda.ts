@@ -460,21 +460,22 @@ export const handler = async (
         }
 
         // Get or create session ID from DynamoDB based on thread identifiers
-        // Prioritize Gmail threadId (most reliable), then fall back to headers
-        const inReplyTo = headers['in-reply-to'] || headers['In-Reply-To'] || '';
+        // Use normalized subject + sender email only
+        // Do NOT use references, in-reply-to, or threadId as they change
+        const normalizedSubject = subject
+          .trim()
+          .replace(/^(re|fwd?):\s*/i, '')
+          .replace(/\s+/g, ' ')
+          .toLowerCase();
+        
         const threadIdentifier = {
-          threadId: threadId, // Gmail thread ID (most reliable)
-          subject: subject,
-          inReplyTo: inReplyTo,
-          references: references,
+          subject: subject, // Pass original subject, normalization happens in generateThreadKey
           senderEmail: senderEmail,
         };
         
         console.log(`   Thread identifier:`, {
-          threadId: threadId || 'none',
-          subject: subject.substring(0, 50),
-          inReplyTo: inReplyTo ? inReplyTo.substring(0, 50) : 'none',
-          references: references ? references.substring(0, 100) : 'none',
+          originalSubject: subject.substring(0, 50),
+          normalizedSubject: normalizedSubject.substring(0, 50),
           senderEmail: senderEmail,
         });
         

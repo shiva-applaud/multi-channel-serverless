@@ -131,7 +131,7 @@ Sometimes starting fresh helps:
 
 ### Option 2: Verify Workspace Email
 
-Make sure `shiva.prabhakar@applaudhr.com`:
+Make sure `hr-help-demo@applaudhr.com`:
 - Exists in your Google Workspace
 - Is an active account
 - Domain matches your Google Workspace domain exactly

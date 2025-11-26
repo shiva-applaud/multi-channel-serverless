@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { TwilioWebhookPayload, WebhookResponse } from '../types/twilio';
-import { getSmsClient, getDefaultPhoneNumber } from '../utils/twilio';
+import { getSmsClient, getDefaultPhoneNumber, getMessagingServiceSid } from '../utils/twilio';
 import { callQueryApi, getResponseText } from '../utils/queryApi';
 import { generateSmsSessionId } from '../utils/sessionId';
 
@@ -112,23 +112,110 @@ export const handler = async (
 
     // Send SMS reply with API response
     try {
-      const fromNumber = getDefaultPhoneNumber();
       const smsClient = getSmsClient();
-      const sentMessage = await smsClient.messages.create({
-        body: replyMessage,
-        from: fromNumber,
+      
+      // Prefer Messaging Service over direct phone number to avoid geographic restrictions
+      // Use Messaging Service from webhook payload, environment variable, or fallback to phone number
+      const messagingServiceSid = payload.MessagingServiceSid || getMessagingServiceSid();
+      const fromNumber = getDefaultPhoneNumber();
+      
+      let sentMessage;
+      let usedMessagingService = false;
+      
+      // Try Messaging Service first if available
+      if (messagingServiceSid) {
+        try {
+          console.log('Attempting to send SMS reply using Messaging Service:', {
+            messagingServiceSid,
+            to: payload.From,
+          });
+          
+          sentMessage = await smsClient.messages.create({
+            body: replyMessage,
+            to: payload.From,
+            messagingServiceSid: messagingServiceSid,
+          });
+          
+          usedMessagingService = true;
+          console.log('SMS reply sent successfully using Messaging Service:', {
+            messageSid: sentMessage.sid,
+            to: payload.From,
+            messagingServiceSid: messagingServiceSid,
+            status: sentMessage.status,
+            replyLength: replyMessage.length,
+          });
+        } catch (messagingServiceError: any) {
+          // If Messaging Service fails with authentication error (401), fallback to phone number
+          if (messagingServiceError?.status === 401 || messagingServiceError?.code === 20003) {
+            console.warn('Messaging Service authentication failed, falling back to phone number:', {
+              error: messagingServiceError?.message,
+              code: messagingServiceError?.code,
+              messagingServiceSid,
+            });
+            
+            // Fallback to phone number
+            console.log('Sending SMS reply using phone number (fallback):', {
+              from: fromNumber,
+              to: payload.From,
+            });
+            
+            sentMessage = await smsClient.messages.create({
+              body: replyMessage,
+              to: payload.From,
+              from: fromNumber,
+            });
+            
+            console.log('SMS reply sent successfully using phone number:', {
+              messageSid: sentMessage.sid,
+              to: payload.From,
+              from: fromNumber,
+              status: sentMessage.status,
+              replyLength: replyMessage.length,
+            });
+          } else {
+            // Re-throw if it's not an authentication error
+            throw messagingServiceError;
+          }
+        }
+      } else {
+        // No Messaging Service available, use phone number directly
+        console.log('Sending SMS reply using phone number:', {
+          from: fromNumber,
+          to: payload.From,
+        });
+        
+        sentMessage = await smsClient.messages.create({
+          body: replyMessage,
+          to: payload.From,
+          from: fromNumber,
+        });
+        
+        console.log('SMS reply sent successfully:', {
+          messageSid: sentMessage.sid,
+          to: payload.From,
+          from: fromNumber,
+          status: sentMessage.status,
+          replyLength: replyMessage.length,
+        });
+      }
+    } catch (sendError: any) {
+      // Enhanced error logging with full Twilio error details
+      const errorDetails = {
+        message: sendError?.message || 'Unknown error',
+        status: sendError?.status,
+        code: sendError?.code,
+        moreInfo: sendError?.moreInfo,
         to: payload.From,
+        from: getDefaultPhoneNumber(),
+        messagingServiceSid: payload.MessagingServiceSid || getMessagingServiceSid(),
+      };
+      
+      console.error('Error sending SMS reply (all methods failed):', {
+        ...errorDetails,
+        fullError: sendError,
+        stack: sendError?.stack,
       });
-
-      console.log('SMS reply sent successfully:', {
-        messageSid: sentMessage.sid,
-        to: payload.From,
-        from: fromNumber,
-        status: sentMessage.status,
-        replyLength: replyMessage.length,
-      });
-    } catch (sendError) {
-      console.error('Error sending SMS reply:', sendError);
+      
       // Continue execution even if sending fails
     }
 
