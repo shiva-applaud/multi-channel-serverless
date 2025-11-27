@@ -29,7 +29,8 @@ provider:
     GMAIL_REDIRECT_URI: ${env:GMAIL_REDIRECT_URI, ''}
     MAX_RESULTS: ${env:MAX_RESULTS, '5'}
     POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
-    SENDER_EMAIL: ${env:SENDER_EMAIL, 'shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com'}
+    SENDER_EMAIL: ${env:SENDER_EMAIL, 'shiva.prabhakar@applaudhr.com,hr-help-demo@applaudhr.com,shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com,gopichand.kasula@applaudhr.com'}
+    REPLY_FROM_EMAIL: ${env:REPLY_FROM_EMAIL, 'hr-help-demo@applaudhr.com'}
   iam:
     role:
       statements:
@@ -226,7 +227,8 @@ functions:
       GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
       MAX_RESULTS: ${env:MAX_RESULTS, '5'}
       POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
-      SENDER_EMAIL: ${env:SENDER_EMAIL, 'shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com'}
+      SENDER_EMAIL: ${env:SENDER_EMAIL, 'shiva.prabhakar@applaudhr.com,hr-help-demo@applaudhr.com,shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com,gopichand.kasula@applaudhr.com'}
+      REPLY_FROM_EMAIL: ${env:REPLY_FROM_EMAIL, 'hr-help-demo@applaudhr.com'}
       SESSION_TABLE_NAME: ${self:service}-${self:provider.stage}-session-store
     events:
       # Schedule to restart every 14 minutes (keeps poller continuous without overlapping instances)

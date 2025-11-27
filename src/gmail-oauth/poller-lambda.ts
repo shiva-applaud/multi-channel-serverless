@@ -490,7 +490,7 @@ export const handler = async (
             console.log(`   Text source: ${sanitizedBody ? 'sanitizedBody' : 'subject'}`);
             console.log(`   Query preview: ${emailText.substring(0, 100)}${emailText.length > 100 ? '...' : ''}`);
             console.log(`   Session ID: ${sessionId}`);
-            const queryApiResponse = await callQueryApi(emailText, '1892', sessionId);
+            const queryApiResponse = await callQueryApi(emailText, sessionId);
             console.log(`   ✓ Query API response:`, {
               success: queryApiResponse.success,
               sessionId,
@@ -515,7 +515,11 @@ export const handler = async (
             
             const ackBody = `${greeting}\n\n${apiResponseText}${signature}`;
             
+            // Use REPLY_FROM_EMAIL if configured, otherwise use default (authenticated user's email)
+            const replyFromEmail = process.env.REPLY_FROM_EMAIL || undefined;
+            
             console.log(`\n📧 Sending reply email to: ${senderEmail}`);
+            console.log(`   From: ${replyFromEmail || 'default (authenticated user)'}`);
             console.log(`   Sender Name: ${senderName || 'Not available'}`);
             console.log(`   Subject: ${ackSubject}`);
             console.log(`   Body length: ${ackBody.length} characters`);
@@ -535,7 +539,7 @@ export const handler = async (
               senderEmail, 
               ackSubject, 
               ackBody,
-              undefined, // from (use default)
+              replyFromEmail, // from (use REPLY_FROM_EMAIL if configured)
               messageId || undefined, // inReplyTo
               threadingReferences || undefined // references
             );
