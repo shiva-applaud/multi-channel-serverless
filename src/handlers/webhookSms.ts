@@ -84,7 +84,7 @@ export const handler = async (
           query: payload.Body.substring(0, 100) + (payload.Body.length > 100 ? '...' : ''),
           sessionId,
         });
-        const queryApiResponse = await callQueryApi(payload.Body, sessionId);
+        const queryApiResponse = await callQueryApi(payload.Body, sessionId, 'sms');
         console.log('Query API response for SMS:', {
           messageSid: payload.MessageSid,
           sessionId,

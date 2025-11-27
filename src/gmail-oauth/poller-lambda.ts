@@ -34,7 +34,7 @@
 
 import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 import { GmailClient } from './gmail-client';
-import { callQueryApi, getResponseText } from '../utils/queryApi';
+import { callQueryApi, getResponseText, formatAgentResponse } from '../utils/queryApi';
 import { getOrCreateSessionId } from '../utils/sessionStore';
 
 /**
@@ -490,7 +490,7 @@ export const handler = async (
             console.log(`   Text source: ${sanitizedBody ? 'sanitizedBody' : 'subject'}`);
             console.log(`   Query preview: ${emailText.substring(0, 100)}${emailText.length > 100 ? '...' : ''}`);
             console.log(`   Session ID: ${sessionId}`);
-            const queryApiResponse = await callQueryApi(emailText, sessionId);
+            const queryApiResponse = await callQueryApi(emailText, sessionId, 'email');
             console.log(`   ✓ Query API response:`, {
               success: queryApiResponse.success,
               sessionId,
@@ -507,13 +507,18 @@ export const handler = async (
             
             // Get API response text
             const fallbackMessage = `Thank you for your email.\n\nThis is an automated acknowledgment that your email has been received and processed.`;
-            const apiResponseText = getResponseText(queryApiResponse, fallbackMessage);
+            let apiResponseText = getResponseText(queryApiResponse, fallbackMessage);
+            
+            // Formatting disabled - sending text without formatting
+            // Apply formatting to ensure clean text (remove unwanted line breaks, fix spacing)
+            // apiResponseText = formatAgentResponse(apiResponseText);
             
             // Format email body with greeting and signature
-            const greeting = senderName ? `Hi ${senderName},` : 'Hi,';
-            const signature = `\n\n---\nBest regards,\nAutomated Support Team\n\nThis is an automated response.`;
+            // const greeting = senderName ? `Hi ${senderName},` : 'Hi,';
+            // const signature = `\n\n---\nBest regards,\nAutomated Support Team\n\nThis is an automated response.`;
             
-            const ackBody = `${greeting}\n\n${apiResponseText}${signature}`;
+            // const ackBody = `${greeting}\n\n${apiResponseText}${signature}`;
+            const ackBody = `${apiResponseText}`;
             
             // Use REPLY_FROM_EMAIL if configured, otherwise use default (authenticated user's email)
             const replyFromEmail = process.env.REPLY_FROM_EMAIL || undefined;
@@ -524,6 +529,19 @@ export const handler = async (
             console.log(`   Subject: ${ackSubject}`);
             console.log(`   Body length: ${ackBody.length} characters`);
             console.log(`   Threading: In-Reply-To=${messageId ? 'Yes' : 'No'}, References=${references ? 'Yes' : 'No'}`);
+            
+            // Log the full email body before sending (for debugging formatting issues)
+            console.log(`\n📝 Full email body before sending:`);
+            console.log(`${'═'.repeat(80)}`);
+            console.log(ackBody);
+            console.log(`${'═'.repeat(80)}`);
+            
+            // Also log with visible line break markers for debugging
+            // const bodyWithMarkers = ackBody.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+            // console.log(`\n📝 Email body with line break markers (first 500 chars):`);
+            // console.log(bodyWithMarkers.substring(0, 500) + (bodyWithMarkers.length > 500 ? '...' : ''));
+            // console.log(`   Total line breaks (\\n): ${(ackBody.match(/\n/g) || []).length}`);
+            // console.log(`   Total carriage returns (\\r): ${(ackBody.match(/\r/g) || []).length}`);
             
             // Build References header: existing references + current message ID
             let threadingReferences = references;

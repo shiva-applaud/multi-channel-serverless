@@ -2,8 +2,8 @@ const API_URL = 'https://uzq2msccdm2sczqgr2kseiwuma0jdgav.lambda-url.us-west-2.o
 
 interface QueryApiRequest {
   query: string;
-  // employee_id: string;
   session_id?: string; // Optional session ID for conversation tracking
+  channel?: string; // Channel type: 'email', 'sms', or 'whatsapp'
 }
 
 interface QueryApiResponse {
@@ -19,67 +19,90 @@ interface QueryApiResponse {
  * @param text - The text to format
  * @returns Formatted text with proper line breaks
  */
-const formatAgentResponse = (text: string): string => {
+export const formatAgentResponse = (text: string): string => {
   if (!text || !text.trim()) {
     return text;
   }
 
-  // Step 1: Normalize whitespace - replace multiple spaces/tabs with single space
-  let formatted = text.replace(/[ \t]+/g, ' ');
-
-  // Step 2: Replace multiple consecutive line breaks (3+) with double line break (paragraph break)
-  formatted = formatted.replace(/\n{3,}/g, '\n\n');
-
-  // Step 3: Remove line breaks that are in the middle of sentences
-  // (line breaks not preceded by sentence-ending punctuation or paragraph breaks)
-  formatted = formatted.replace(/([^.!?\n])\n([^ \n])/g, '$1 $2');
-
-  // Step 4: Fix line breaks after sentence-ending punctuation that are followed by lowercase
-  // (should be space instead of line break)
-  formatted = formatted.replace(/([.!?])\n([a-z])/g, '$1 $2');
-
-  // Step 5: Normalize double line breaks (ensure consistent paragraph breaks)
-  formatted = formatted.replace(/\n\n+/g, '\n\n');
-
-  // Step 6: Trim whitespace from each line
-  formatted = formatted
-    .split('\n')
-    .map(line => line.trim())
-    .join('\n');
-
-  // Step 7: Add meaningful line breaks after sentences when followed by capital letters
-  // (but preserve existing paragraph breaks)
-  formatted = formatted.replace(/([.!?])\s+([A-Z][a-z])/g, (match, punctuation, nextWord, offset, str) => {
-    // Check if there's already a paragraph break before this position
-    const beforeText = str.substring(0, offset);
-    const isAfterParagraph = beforeText.endsWith('\n\n');
-    
-    // If not after a paragraph break, add a single line break for readability
-    if (!isAfterParagraph) {
-      return `${punctuation}\n${nextWord}`;
-    }
-    return match;
+  // Debug: Log original text details
+  const originalLineBreaks = (text.match(/\n/g) || []).length;
+  const originalPreview = text.substring(0, 300).replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+  console.log('formatAgentResponse - Original text:', {
+    length: text.length,
+    lineBreaks: originalLineBreaks,
+    preview: originalPreview,
+    hasCarriageReturns: (text.match(/\r/g) || []).length > 0,
   });
 
-  // Step 8: Remove multiple spaces in the middle of sentences (between words)
-  // Replace 2+ spaces with single space, but preserve line breaks
+  // Step 1: Normalize line endings - convert \r\n and \r to \n
+  let formatted = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Step 2: Normalize whitespace - replace multiple spaces/tabs with single space
+  formatted = formatted.replace(/[ \t]+/g, ' ');
+
+  // Step 3: Replace multiple consecutive line breaks (3+) with double line break
+  formatted = formatted.replace(/\n{3,}/g, '\n\n');
+
+  // Step 4: Preserve paragraph breaks (double line breaks) temporarily with a unique marker
+  // Use a marker that's unlikely to appear in the text
+  const PARA_MARKER = '___PARAGRAPH_BREAK_MARKER___';
+  formatted = formatted.replace(/\n\n/g, PARA_MARKER);
+
+  // Step 5: Remove ALL single line breaks (they're unwanted mid-sentence breaks)
+  // This removes breaks like "Bolton NHS\nFoundation Trust" -> "Bolton NHS Foundation Trust"
+  formatted = formatted.replace(/\n/g, ' ');
+
+  // Step 6: Restore paragraph breaks
+  formatted = formatted.replace(new RegExp(PARA_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\n\n');
+
+  // Step 7: Remove multiple spaces everywhere (clean up after line break removals)
   formatted = formatted.replace(/[ ]{2,}/g, ' ');
 
-  // Step 9: Final trim
-  return formatted.trim();
+  // Step 8: Split by paragraph breaks and clean each paragraph
+  const paragraphs = formatted.split('\n\n');
+  formatted = paragraphs
+    .map(para => {
+      // Trim whitespace
+      let cleaned = para.trim();
+      // Remove any remaining line breaks (shouldn't be any, but defensive)
+      cleaned = cleaned.replace(/\n/g, ' ');
+      // Remove multiple spaces
+      cleaned = cleaned.replace(/[ ]{2,}/g, ' ');
+      return cleaned;
+    })
+    .filter(para => para.length > 0)
+    .join('\n\n');
+
+  // Step 9: Final cleanup - remove any remaining multiple spaces
+  formatted = formatted.replace(/[ ]{2,}/g, ' ');
+
+  // Step 10: Final trim
+  const result = formatted.trim();
+  
+  // Debug: Log formatted text details
+  const finalLineBreaks = (result.match(/\n/g) || []).length;
+  const formattedPreview = result.substring(0, 300).replace(/\n/g, '\\n');
+  console.log('formatAgentResponse - Formatted text:', {
+    length: result.length,
+    lineBreaks: finalLineBreaks,
+    preview: formattedPreview,
+    breaksRemoved: originalLineBreaks - finalLineBreaks,
+  });
+  
+  return result;
 };
 
 /**
- * Makes a POST request to the query API with the provided query text and employee ID
+ * Makes a POST request to the query API with the provided query text
  * @param query - The query text (email text, SMS text, or WhatsApp text)
- * @param employeeId - The employee ID (defaults to "1892" if not provided)
  * @param sessionId - Optional session ID for conversation tracking (SMS/WhatsApp/Email)
+ * @param channel - Channel type: 'email', 'sms', or 'whatsapp'
  * @returns Promise resolving to the API response data with agent_response field
  */
 export const callQueryApi = async (
   query: string,
-  // employeeId: string = '1892',
-  sessionId?: string
+  sessionId?: string,
+  channel?: 'email' | 'sms' | 'whatsapp'
 ): Promise<QueryApiResponse> => {
   try {
     if (!query || !query.trim()) {
@@ -89,7 +112,6 @@ export const callQueryApi = async (
     // Prepare the request body for the external API
     const apiRequestBody: QueryApiRequest = {
       query: query.trim(),
-      // employee_id: employeeId,
     };
 
     // Add sessionId if provided
@@ -97,11 +119,16 @@ export const callQueryApi = async (
       apiRequestBody.session_id = sessionId;
     }
 
+    // Add channel if provided
+    if (channel) {
+      apiRequestBody.channel = channel;
+    }
+
     console.log('Calling Query API:', {
       url: API_URL,
       query: apiRequestBody.query.substring(0, 100) + (apiRequestBody.query.length > 100 ? '...' : ''),
-      // employee_id: apiRequestBody.employee_id,
       session_id: apiRequestBody.session_id || 'not provided',
+      channel: apiRequestBody.channel || 'not provided',
     });
 
     // Make POST request to the external API
@@ -127,10 +154,20 @@ export const callQueryApi = async (
     // Parse the response
     const responseData = await response.json() as QueryApiResponse;
 
-    // Format agent_response if it exists
-    if (responseData.agent_response) {
-      responseData.agent_response = formatAgentResponse(responseData.agent_response);
-    }
+    // Log the full original agent_response before formatting (for debugging)
+    // if (responseData.agent_response) {
+    //   const originalResponse = responseData.agent_response;
+    //   const originalLineBreaks = (originalResponse.match(/\n/g) || []).length;
+    //   console.log('Query API - Original agent_response:', {
+    //     length: originalResponse.length,
+    //     lineBreaks: originalLineBreaks,
+    //     preview: originalResponse.substring(0, 500).replace(/\n/g, '\\n'),
+    //     fullTextWithMarkers: originalResponse.replace(/\n/g, '\\n').substring(0, 1000),
+    //   });
+      
+    //   // Formatting disabled - sending text without formatting
+    //   // responseData.agent_response = formatAgentResponse(responseData.agent_response);
+    // }
 
     console.log('Query API call successful:', {
       status: response.status,

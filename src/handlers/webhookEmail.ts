@@ -292,7 +292,7 @@ export const handler = async (
                 query: emailText.substring(0, 100) + (emailText.length > 100 ? '...' : ''),
                 sessionId,
               });
-              const queryApiResponse = await callQueryApi(emailText, sessionId);
+              const queryApiResponse = await callQueryApi(emailText, sessionId, 'email');
               console.log('Query API response for email:', {
                 messageId: fullEmail.id,
                 sessionId,
