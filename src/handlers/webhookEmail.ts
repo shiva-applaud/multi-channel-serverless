@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, EventBridgeEvent } from 'a
 import { WebhookEmailResponse } from '../types/email';
 import { getEmailMessage, listEmails, getDefaultSenderEmail } from '../utils/gmail';
 import { callQueryApi } from '../utils/queryApi';
-import { generateEmailSessionId } from '../utils/sessionId';
+import { getOrCreateEmailSession } from '../utils/sessionStore';
 
 /**
  * Handler for polling Gmail inbox using Google APIs
@@ -273,9 +273,14 @@ export const handler = async (
             snippetLength: fullEmail.snippet?.length || 0,
           });
 
-          // Generate session ID for email conversation (use Gmail threadId if available)
+          // Get or create session ID for email conversation
           const threadId = fullEmail.threadId || emailItem.threadId || undefined;
-          const sessionId = generateEmailSessionId(threadId, from);
+          const threadIdentifier = {
+            threadId,
+            subject: subject,
+            senderEmail: from,
+          };
+          const sessionId = await getOrCreateEmailSession(threadIdentifier);
           console.log('Email Session ID:', {
             messageId: fullEmail.id,
             threadId: threadId || 'not available',

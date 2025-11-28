@@ -34,8 +34,8 @@
 
 import { APIGatewayProxyEvent, Context } from 'aws-lambda';
 import { GmailClient } from './gmail-client';
-import { callQueryApi, getResponseText, formatAgentResponse } from '../utils/queryApi';
-import { getOrCreateSessionId } from '../utils/sessionStore';
+import { callQueryApi, getResponseText } from '../utils/queryApi';
+import { getOrCreateEmailSession } from '../utils/sessionStore';
 
 /**
  * Parse SENDER_EMAIL environment variable as an array of email addresses
@@ -479,7 +479,7 @@ export const handler = async (
           senderEmail: senderEmail,
         });
         
-        const sessionId = await getOrCreateSessionId(threadIdentifier);
+        const sessionId = await getOrCreateEmailSession(threadIdentifier);
         console.log(`   Session ID: ${sessionId}`);
 
         // Call Query API with email text (prefer sanitizedBody, then subject)
@@ -507,7 +507,7 @@ export const handler = async (
             
             // Get API response text
             const fallbackMessage = `Thank you for your email.\n\nThis is an automated acknowledgment that your email has been received and processed.`;
-            let apiResponseText = getResponseText(queryApiResponse, fallbackMessage);
+            let apiResponseText = queryApiResponse?.agent_response || fallbackMessage;
             
             // Formatting disabled - sending text without formatting
             // Apply formatting to ensure clean text (remove unwanted line breaks, fix spacing)
@@ -520,11 +520,11 @@ export const handler = async (
             // const ackBody = `${greeting}\n\n${apiResponseText}${signature}`;
             const ackBody = `${apiResponseText}`;
             
-            // Use REPLY_FROM_EMAIL if configured, otherwise use default (authenticated user's email)
-            const replyFromEmail = process.env.REPLY_FROM_EMAIL || undefined;
+            // Always send from hr-help-demo@applaudhr.com
+            const replyFromEmail = 'hr-help-demo@applaudhr.com';
             
             console.log(`\n📧 Sending reply email to: ${senderEmail}`);
-            console.log(`   From: ${replyFromEmail || 'default (authenticated user)'}`);
+            console.log(`   From: ${replyFromEmail}`);
             console.log(`   Sender Name: ${senderName || 'Not available'}`);
             console.log(`   Subject: ${ackSubject}`);
             console.log(`   Body length: ${ackBody.length} characters`);

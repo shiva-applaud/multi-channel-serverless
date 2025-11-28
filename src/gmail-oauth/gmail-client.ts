@@ -245,18 +245,127 @@ export class GmailClient {
   }
 
   /**
+   * Wrap text at word boundaries to prevent email clients from wrapping lines in awkward places
+   * @param text - The text to wrap
+   * @param lineLength - Maximum line length (default: 120)
+   * @returns Text with soft line breaks at word boundaries
+   */
+  private wrapEmailBody(text: string, lineLength: number = 500): string {
+    console.log('wrapEmailBody - Input:', {
+      lineLength,
+      textLength: text.length,
+      preview: text.substring(0, 200).replace(/\n/g, '\\n').replace(/\r/g, '\\r'),
+      lineBreaks: (text.match(/\n/g) || []).length,
+      carriageReturns: (text.match(/\r/g) || []).length,
+    });
+    
+    if (!text || text.length <= lineLength) {
+      return text;
+    }
+
+    // Step 1: Normalize all line endings to \n
+    let normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // Step 2: Identify paragraph breaks (double or more line breaks)
+    // Replace multiple line breaks with a unique marker
+    const PARA_MARKER = '___PARAGRAPH_BREAK___';
+    normalized = normalized.replace(/\n{2,}/g, PARA_MARKER);
+    
+    // Step 3: Remove ALL remaining single line breaks
+    normalized = normalized.replace(/\n/g, ' ');
+    
+    // Step 4: Split by paragraph markers
+    const paragraphs = normalized.split(PARA_MARKER);
+    
+    const wrappedParagraphs = paragraphs.map((paragraph, index) => {
+      // Clean up spaces
+      let cleaned = paragraph.replace(/[ \t]+/g, ' ').trim();
+      
+      if (!cleaned) {
+        return '';
+      }
+      
+      if (cleaned.length <= lineLength) {
+        return cleaned;
+      }
+
+      // Wrap at word boundaries
+      const words = cleaned.split(/\s+/);
+      const lines: string[] = [];
+      let currentLine = '';
+
+      for (const word of words) {
+        // If word itself is longer than line length, add it on its own line
+        if (word.length > lineLength) {
+          if (currentLine) {
+            lines.push(currentLine.trim());
+            currentLine = '';
+          }
+          lines.push(word);
+          continue;
+        }
+
+        // Check if adding this word would exceed line length
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length <= lineLength) {
+          currentLine = testLine;
+        } else {
+          // Current line is full, start a new one
+          if (currentLine) {
+            lines.push(currentLine.trim());
+          }
+          currentLine = word;
+        }
+      }
+
+      // Add the last line if it exists
+      if (currentLine) {
+        lines.push(currentLine.trim());
+      }
+
+      const result = lines.join('\n');
+      
+      // Log first paragraph wrapping for debugging
+      if (index === 0) {
+        const firstLineLength = result.split('\n')[0]?.length || 0;
+        console.log('wrapEmailBody - First paragraph wrapped:', {
+          originalLength: cleaned.length,
+          wrappedLines: lines.length,
+          firstLineLength,
+          firstLinePreview: result.substring(0, 100),
+        });
+      }
+      
+      return result;
+    });
+
+    const finalResult = wrappedParagraphs.filter(p => p.length > 0).join('\n\n');
+    
+    console.log('wrapEmailBody - Output:', {
+      originalLength: text.length,
+      finalLength: finalResult.length,
+      paragraphs: wrappedParagraphs.length,
+      lineBreaks: (finalResult.match(/\n/g) || []).length,
+      sampleLineLengths: finalResult.split('\n').slice(0, 5).map(line => line.length),
+    });
+    
+    return finalResult;
+  }
+
+  /**
    * Send an email
    * 
    * How Gmail Email Sending Works:
    * - Gmail API requires emails to be formatted as RFC 2822 messages
    * - The message must be base64url encoded
    * - Headers include: From, To, Subject, Content-Type
-   * - Body can be plain text or HTML
+   * - Body is sent as plain text (text/plain)
    * - For threading: Include In-Reply-To and References headers
+   * - Body is wrapped at 500 characters to prevent client-side wrapping
    * 
    * @param to - Recipient email address
    * @param subject - Email subject
-   * @param body - Email body (plain text)
+   * @param body - Email body (plain text only)
    * @param from - Optional sender email (defaults to authenticated user)
    * @param inReplyTo - Optional Message-ID of the email being replied to (for threading)
    * @param references - Optional References header value (for threading chain)
@@ -281,10 +390,10 @@ export class GmailClient {
       // Create RFC 2822 formatted email message
       // Format: headers + blank line + body
       const messageHeaders: string[] = [
-        `From: ${fromEmail}`,
+        `From: HR Support ${fromEmail}`,
         `To: ${to}`,
         `Subject: ${subject}`,
-        `Content-Type: text/plain; charset=utf-8`,
+        `Content-Type: text/html; charset=utf-8`,
         `Content-Transfer-Encoding: 7bit`,
       ];
 
@@ -296,6 +405,7 @@ export class GmailClient {
         messageHeaders.push(`References: ${references}`);
       }
 
+      // Send body as-is without any wrapping or formatting
       const message = [
         ...messageHeaders,
         '', // Blank line between headers and body

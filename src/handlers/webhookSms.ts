@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { TwilioWebhookPayload, WebhookResponse } from '../types/twilio';
 import { getSmsClient, getDefaultPhoneNumber, getMessagingServiceSid } from '../utils/twilio';
 import { callQueryApi, getResponseText } from '../utils/queryApi';
-import { generateSmsSessionId } from '../utils/sessionId';
+import { getOrCreateSmsWhatsAppSession } from '../utils/sessionStore';
 
 export const handler = async (
   event: APIGatewayProxyEvent
@@ -71,8 +71,22 @@ export const handler = async (
       numMedia: payload.NumMedia,
     });
 
-    // Generate session ID for SMS conversation
-    const sessionId = generateSmsSessionId(payload.From);
+    // Get or create session ID for SMS conversation
+    if (!payload.From || !payload.From.trim()) {
+      console.error('Missing From phone number');
+      return {
+        statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: JSON.stringify({
+          success: false,
+          error: 'Missing From phone number',
+        } as WebhookResponse),
+      };
+    }
+    const sessionId = await getOrCreateSmsWhatsAppSession('sms', payload.From, payload.Body);
     console.log('SMS Session ID:', sessionId);
 
     // Call Query API with SMS message text and send response back

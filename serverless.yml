@@ -31,6 +31,10 @@ provider:
     POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
     SENDER_EMAIL: ${env:SENDER_EMAIL, 'shiva.prabhakar@applaudhr.com,hr-help-demo@applaudhr.com,shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com,gopichand.kasula@applaudhr.com'}
     REPLY_FROM_EMAIL: ${env:REPLY_FROM_EMAIL, 'hr-help-demo@applaudhr.com'}
+    # Session Management Configuration
+    SESSION_GAP_SMS_WA: ${env:SESSION_GAP_SMS_WA, '86400000'}  # 1 day (86400000 ms) for SMS/WhatsApp
+    SESSION_GAP_MAIL: ${env:SESSION_GAP_MAIL, '604800000'}  # 1 week (604800000 ms) for Email
+    SESSION_TABLE_NAME: ${env:SESSION_TABLE_NAME, '${self:service}-${self:provider.stage}-session-store'}
   iam:
     role:
       statements:
@@ -76,6 +80,8 @@ functions:
       TWILIO_SMS_AUTH_TOKEN: ${env:TWILIO_SMS_AUTH_TOKEN, 'c18b2fba8c2496d6752df0b9dc3d335a'}
       TWILIO_PHONE_NUMBER: ${env:TWILIO_PHONE_NUMBER, '+13609951873'}
       TWILIO_MESSAGING_SERVICE_SID: ${env:TWILIO_MESSAGING_SERVICE_SID, 'MG46adbf526a9b26fb55bb17cd29cff8a6'}
+      SESSION_GAP_SMS_WA: ${env:SESSION_GAP_SMS_WA, '86400000'}  # 1 day (86400000 ms)
+      SESSION_TABLE_NAME: ${env:SESSION_TABLE_NAME, '${self:service}-${self:provider.stage}-session-store'}
     events:
       - http:
           path: webhook/sms
@@ -84,6 +90,9 @@ functions:
 
   webhookWhatsApp:
     handler: src/handlers/webhookWhatsApp.handler
+    environment:
+      SESSION_GAP_SMS_WA: ${env:SESSION_GAP_SMS_WA, '86400000'}  # 1 day (86400000 ms)
+      SESSION_TABLE_NAME: ${env:SESSION_TABLE_NAME, '${self:service}-${self:provider.stage}-session-store'}
     events:
       - http:
           path: webhook/whatsapp
@@ -135,6 +144,8 @@ functions:
     handler: src/handlers/webhookEmail.handler
     environment:
       GOOGLE_WORKSPACE_EMAIL: ${env:GOOGLE_WORKSPACE_EMAIL, 'hr-help-demo@applaudhr.com'}
+      SESSION_GAP_MAIL: ${env:SESSION_GAP_MAIL, '604800000'}  # 1 week (604800000 ms)
+      SESSION_TABLE_NAME: ${env:SESSION_TABLE_NAME, '${self:service}-${self:provider.stage}-session-store'}
     # Events disabled to avoid duplicate replies (Gmail poller replaces this schedule)
     # events:
     #   - schedule:
@@ -226,10 +237,11 @@ functions:
       GMAIL_CLIENT_SECRET: ${env:GMAIL_CLIENT_SECRET, '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'}
       GMAIL_REFRESH_TOKEN: ${env:GMAIL_REFRESH_TOKEN, ''}
       MAX_RESULTS: ${env:MAX_RESULTS, '5'}
-      POLL_INTERVAL: ${env:POLL_INTERVAL, '10000'}
+      POLL_INTERVAL: ${env:POLL_INTERVAL, '8000'}
       SENDER_EMAIL: ${env:SENDER_EMAIL, 'shiva.prabhakar@applaudhr.com,hr-help-demo@applaudhr.com,shivaprabhakarlingala@gmail.com,duncan.casemore@applaudhr.com,anil.kashipaka@applaudhr.com,ivan.harding@applaudhr.com,prabhakar3679@gmail.com,sumanth.sarap@applaudhr.com,gopichand.kasula@applaudhr.com'}
       REPLY_FROM_EMAIL: ${env:REPLY_FROM_EMAIL, 'hr-help-demo@applaudhr.com'}
-      SESSION_TABLE_NAME: ${self:service}-${self:provider.stage}-session-store
+      SESSION_GAP_MAIL: ${env:SESSION_GAP_MAIL, '604800000'}  # 1 week (604800000 ms)
+      SESSION_TABLE_NAME: ${env:SESSION_TABLE_NAME, '${self:service}-${self:provider.stage}-session-store'}
     events:
       # Schedule to restart every 14 minutes (keeps poller continuous without overlapping instances)
       - schedule:

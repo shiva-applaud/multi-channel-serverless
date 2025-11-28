@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { TwilioWebhookPayload, WebhookResponse } from '../types/twilio';
 import { getWhatsAppClient, getDefaultWhatsAppNumber } from '../utils/twilio';
 import { callQueryApi, getResponseText } from '../utils/queryApi';
-import { generateWhatsAppSessionId } from '../utils/sessionId';
+import { getOrCreateSmsWhatsAppSession } from '../utils/sessionStore';
 
 export const handler = async (
   event: APIGatewayProxyEvent
@@ -71,8 +71,24 @@ export const handler = async (
       numMedia: payload.NumMedia,
     });
 
-    // Generate session ID for WhatsApp conversation
-    const sessionId = generateWhatsAppSessionId(payload.From, payload.WaId);
+    // Get or create session ID for WhatsApp conversation
+    // Use WaId if available, otherwise use From phone number
+    const phoneNumber = payload.WaId || payload.From;
+    if (!phoneNumber || !phoneNumber.trim()) {
+      console.error('Missing phone number (WaId and From are both empty)');
+      return {
+        statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: JSON.stringify({
+          success: false,
+          error: 'Missing phone number',
+        } as WebhookResponse),
+      };
+    }
+    const sessionId = await getOrCreateSmsWhatsAppSession('whatsapp', phoneNumber, payload.Body);
     console.log('WhatsApp Session ID:', sessionId);
 
     // Call Query API with WhatsApp message text and send response back
