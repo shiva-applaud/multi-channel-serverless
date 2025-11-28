@@ -124,82 +124,85 @@ export const handler = async (
             
             const fromNumber = getDefaultWhatsAppNumber();
             if (!fromNumber) {
-              throw new Error('Default WhatsApp number is not configured');
-            }
-            
-            // Extract phone number from WhatsApp format (whatsapp:+1234567890 -> +1234567890)
-            const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
-              ? payload.From.replace('whatsapp:', '') 
-              : payload.From;
-            
-            if (!senderNumber) {
-              throw new Error('Cannot determine sender phone number');
-            }
-            
-            const formattedTo = `whatsapp:${senderNumber}`;
-            
-            const whatsappClient = getWhatsAppClient();
-            if (!whatsappClient) {
-              throw new Error('WhatsApp client is not initialized');
-            }
-            
-            let messagesSent = 0;
-            // Send each message in the array
-            for (let i = 0; i < agentResponse.length; i++) {
-              const messageItem = agentResponse[i];
-              
-              // Validate that array item is a string
-              if (typeof messageItem !== 'string') {
-                console.warn(`Skipping non-string message at index ${i}:`, typeof messageItem);
-                continue;
-              }
-              
-              const messageText = messageItem.trim();
-              if (!messageText) {
-                console.warn(`Skipping empty message at index ${i}`);
-                continue;
-              }
-              
-              try {
-                const sentMessage = await whatsappClient.messages.create({
-                  body: messageText,
-                  from: fromNumber,
-                  to: formattedTo,
-                });
-
-                messagesSent++;
-                console.log(`WhatsApp message ${i + 1}/${agentResponse.length} sent successfully:`, {
-                  messageSid: sentMessage.sid,
-                  to: formattedTo,
-                  from: fromNumber,
-                  status: sentMessage.status,
-                  replyLength: messageText.length,
-                });
-              } catch (sendError) {
-                console.error(`Error sending WhatsApp message ${i + 1}/${agentResponse.length}:`, {
-                  error: sendError instanceof Error ? sendError.message : 'Unknown error',
-                  stack: sendError instanceof Error ? sendError.stack : undefined,
-                });
-                // Continue sending remaining messages even if one fails
-              }
-            }
-            
-            if (messagesSent === 0) {
-              console.warn('No messages were sent from array, using fallback message');
+              console.error('Cannot send WhatsApp messages: Default WhatsApp number is not configured');
               replyMessage = 'Thank you for your message. We have received it and will get back to you soon.';
-              // Fall through to send fallback message below
             } else {
-              // All messages sent successfully, skip single message sending below
-              return {
-                statusCode: 200,
-                headers: {
-                  'Content-Type': 'text/xml',
-                  'Access-Control-Allow-Origin': '*',
-                },
-                body: `<?xml version="1.0" encoding="UTF-8"?>
+              // Extract phone number from WhatsApp format (whatsapp:+1234567890 -> +1234567890)
+              const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
+                ? payload.From.replace('whatsapp:', '') 
+                : payload.From;
+              
+              if (!senderNumber) {
+                console.error('Cannot send WhatsApp messages: Cannot determine sender phone number');
+                replyMessage = 'Thank you for your message. We have received it and will get back to you soon.';
+              } else {
+                const formattedTo = `whatsapp:${senderNumber}`;
+                
+                const whatsappClient = getWhatsAppClient();
+                if (!whatsappClient) {
+                  console.error('Cannot send WhatsApp messages: WhatsApp client is not initialized');
+                  replyMessage = 'Thank you for your message. We have received it and will get back to you soon.';
+                } else {
+                  let messagesSent = 0;
+                  // Send each message in the array
+                  for (let i = 0; i < agentResponse.length; i++) {
+                    const messageItem = agentResponse[i];
+                    
+                    // Validate that array item is a string
+                    if (typeof messageItem !== 'string') {
+                      console.warn(`Skipping non-string message at index ${i}:`, typeof messageItem);
+                      continue;
+                    }
+                    
+                    const messageText = messageItem.trim();
+                    if (!messageText) {
+                      console.warn(`Skipping empty message at index ${i}`);
+                      continue;
+                    }
+                    
+                    try {
+                      const sentMessage = await whatsappClient.messages.create({
+                        body: messageText,
+                        from: fromNumber,
+                        to: formattedTo,
+                      });
+
+                      messagesSent++;
+                      console.log(`WhatsApp message ${i + 1}/${agentResponse.length} sent successfully:`, {
+                        messageSid: sentMessage.sid,
+                        to: formattedTo,
+                        from: fromNumber,
+                        status: sentMessage.status,
+                        replyLength: messageText.length,
+                      });
+                    } catch (sendError) {
+                      console.error(`Error sending WhatsApp message ${i + 1}/${agentResponse.length}:`, {
+                        error: sendError instanceof Error ? sendError.message : 'Unknown error',
+                        stack: sendError instanceof Error ? sendError.stack : undefined,
+                      });
+                      // Continue sending remaining messages even if one fails
+                    }
+                  }
+                  
+                  if (messagesSent === 0) {
+                    console.warn('No messages were sent from array, using fallback message');
+                    replyMessage = 'Thank you for your message. We have received it and will get back to you soon.';
+                    // Fall through to send fallback message below
+                  } else {
+                    // All messages sent successfully, skip single message sending below
+                    return {
+                      statusCode: 200,
+                      headers: {
+                        'Content-Type': 'text/xml',
+                        'Access-Control-Allow-Origin': '*',
+                      },
+                      body: `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
 </Response>`,
-              };
+                    };
+                  }
+                }
+              }
             }
           }
           
@@ -208,37 +211,37 @@ export const handler = async (
             try {
               const fromNumber = getDefaultWhatsAppNumber();
               if (!fromNumber) {
-                throw new Error('Default WhatsApp number is not configured');
-              }
-              
-              const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
-                ? payload.From.replace('whatsapp:', '') 
-                : payload.From;
-              
-              if (!senderNumber) {
-                throw new Error('Cannot determine sender phone number');
-              }
-              
-              const formattedTo = `whatsapp:${senderNumber}`;
-              
-              const whatsappClient = getWhatsAppClient();
-              if (!whatsappClient) {
-                throw new Error('WhatsApp client is not initialized');
-              }
-              
-              const sentMessage = await whatsappClient.messages.create({
-                body: replyMessage,
-                from: fromNumber,
-                to: formattedTo,
-              });
+                console.error('Cannot send WhatsApp fallback message: Default WhatsApp number is not configured');
+              } else {
+                const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
+                  ? payload.From.replace('whatsapp:', '') 
+                  : payload.From;
+                
+                if (!senderNumber) {
+                  console.error('Cannot send WhatsApp fallback message: Cannot determine sender phone number');
+                } else {
+                  const formattedTo = `whatsapp:${senderNumber}`;
+                  
+                  const whatsappClient = getWhatsAppClient();
+                  if (!whatsappClient) {
+                    console.error('Cannot send WhatsApp fallback message: WhatsApp client is not initialized');
+                  } else {
+                    const sentMessage = await whatsappClient.messages.create({
+                      body: replyMessage,
+                      from: fromNumber,
+                      to: formattedTo,
+                    });
 
-              console.log('WhatsApp fallback message sent successfully:', {
-                messageSid: sentMessage.sid,
-                to: formattedTo,
-                from: fromNumber,
-                status: sentMessage.status,
-                replyLength: replyMessage.length,
-              });
+                    console.log('WhatsApp fallback message sent successfully:', {
+                      messageSid: sentMessage.sid,
+                      to: formattedTo,
+                      from: fromNumber,
+                      status: sentMessage.status,
+                      replyLength: replyMessage.length,
+                    });
+                  }
+                }
+              }
             } catch (sendError) {
               console.error('Error sending WhatsApp fallback message:', {
                 error: sendError instanceof Error ? sendError.message : 'Unknown error',
@@ -257,38 +260,38 @@ export const handler = async (
           try {
             const fromNumber = getDefaultWhatsAppNumber();
             if (!fromNumber) {
-              throw new Error('Default WhatsApp number is not configured');
-            }
-            
-            // Extract phone number from WhatsApp format (whatsapp:+1234567890 -> +1234567890)
-            const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
-              ? payload.From.replace('whatsapp:', '') 
-              : payload.From;
-            
-            if (!senderNumber) {
-              throw new Error('Cannot determine sender phone number');
-            }
-            
-            const formattedTo = `whatsapp:${senderNumber}`;
-            
-            const whatsappClient = getWhatsAppClient();
-            if (!whatsappClient) {
-              throw new Error('WhatsApp client is not initialized');
-            }
-            
-            const sentMessage = await whatsappClient.messages.create({
-              body: replyMessage,
-              from: fromNumber,
-              to: formattedTo,
-            });
+              console.error('Cannot send WhatsApp reply: Default WhatsApp number is not configured');
+            } else {
+              // Extract phone number from WhatsApp format (whatsapp:+1234567890 -> +1234567890)
+              const senderNumber = payload.From && payload.From.startsWith('whatsapp:') 
+                ? payload.From.replace('whatsapp:', '') 
+                : payload.From;
+              
+              if (!senderNumber) {
+                console.error('Cannot send WhatsApp reply: Cannot determine sender phone number');
+              } else {
+                const formattedTo = `whatsapp:${senderNumber}`;
+                
+                const whatsappClient = getWhatsAppClient();
+                if (!whatsappClient) {
+                  console.error('Cannot send WhatsApp reply: WhatsApp client is not initialized');
+                } else {
+                  const sentMessage = await whatsappClient.messages.create({
+                    body: replyMessage,
+                    from: fromNumber,
+                    to: formattedTo,
+                  });
 
-            console.log('WhatsApp reply sent successfully:', {
-              messageSid: sentMessage.sid,
-              to: formattedTo,
-              from: fromNumber,
-              status: sentMessage.status,
-              replyLength: replyMessage.length,
-            });
+                  console.log('WhatsApp reply sent successfully:', {
+                    messageSid: sentMessage.sid,
+                    to: formattedTo,
+                    from: fromNumber,
+                    status: sentMessage.status,
+                    replyLength: replyMessage.length,
+                  });
+                }
+              }
+            }
           } catch (sendError) {
             console.error('Error sending WhatsApp reply:', {
               error: sendError instanceof Error ? sendError.message : 'Unknown error',
@@ -409,4 +412,3 @@ export const handler = async (
     };
   }
 };
-
