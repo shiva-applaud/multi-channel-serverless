@@ -10,7 +10,7 @@ interface QueryApiResponse {
   success: boolean;
   data?: any;
   error?: string;
-  agent_response?: string; // The response text to send back to the user
+  agent_response?: string | string[]; // The response text to send back to the user (can be string or array of strings)
   message?: string;
 }
 
@@ -169,13 +169,25 @@ export const callQueryApi = async (
     //   // responseData.agent_response = formatAgentResponse(responseData.agent_response);
     // }
 
+    // Format preview for logging (handle both string and array)
+    let agentResponsePreview: string | undefined;
+    if (responseData.agent_response) {
+      if (typeof responseData.agent_response === 'string') {
+        agentResponsePreview = responseData.agent_response.substring(0, 100) + 
+          (responseData.agent_response.length > 100 ? '...' : '');
+      } else if (Array.isArray(responseData.agent_response)) {
+        agentResponsePreview = `[Array of ${responseData.agent_response.length} messages]`;
+      }
+    }
+    
     console.log('Query API call successful:', {
       status: response.status,
       success: responseData.success,
       hasAgentResponse: !!responseData.agent_response,
-      agentResponsePreview: responseData.agent_response 
-        ? responseData.agent_response.substring(0, 100) + (responseData.agent_response.length > 100 ? '...' : '')
+      agentResponseType: responseData.agent_response 
+        ? (Array.isArray(responseData.agent_response) ? 'array' : 'string')
         : undefined,
+      agentResponsePreview,
     });
     
     return responseData;
@@ -199,8 +211,17 @@ export const getResponseText = (
   fallbackMessage: string = 'Thank you for your message. We have received it and will get back to you soon.'
 ): string => {
   // Priority: agent_response > message > data > fallback
-  if (apiResponse.agent_response && apiResponse.agent_response.trim()) {
-    return apiResponse.agent_response.trim();
+  // Note: If agent_response is an array, this function should not be called
+  // The caller should handle arrays separately
+  if (apiResponse.agent_response) {
+    if (typeof apiResponse.agent_response === 'string' && apiResponse.agent_response.trim()) {
+      return apiResponse.agent_response.trim();
+    }
+    // If it's an array, return fallback (caller should handle arrays)
+    if (Array.isArray(apiResponse.agent_response)) {
+      console.warn('getResponseText called with array agent_response, returning fallback');
+      return fallbackMessage;
+    }
   }
   if (apiResponse.message && apiResponse.message.trim()) {
     return apiResponse.message.trim();
