@@ -382,15 +382,19 @@ export class GmailClient {
     try {
       // Get the authenticated user's email if 'from' is not provided
       let fromEmail = from;
+      console.log('sendEmail - from parameter:', from);
       if (!fromEmail) {
         const profile = await this.gmail.users.getProfile({ userId: 'me' });
         fromEmail = profile.data.emailAddress || 'me';
+        console.log('sendEmail - using authenticated user email:', fromEmail);
+      } else {
+        console.log('sendEmail - using provided from email:', fromEmail);
       }
 
       // Create RFC 2822 formatted email message
       // Format: headers + blank line + body
       const messageHeaders: string[] = [
-        `From: HR Support ${fromEmail}`,
+        `From: HR Support <${fromEmail}>`,
         `To: ${to}`,
         `Subject: ${subject}`,
         `Content-Type: text/html; charset=utf-8`,
@@ -411,6 +415,9 @@ export class GmailClient {
         '', // Blank line between headers and body
         body,
       ].join('\n');
+
+      // Log the From header to verify format
+      console.log('sendEmail - From header:', messageHeaders.find(h => h.startsWith('From:')));
 
       // Encode message to base64url format
       // Base64url uses '-' instead of '+' and '_' instead of '/'
