@@ -38,10 +38,11 @@ const SESSION_GAP_MAIL = parseInt(process.env.SESSION_GAP_MAIL || '604800000', 1
 
 interface SmsWhatsAppSessionRecord {
   sessionKey: string; // Format: "sms-{phone}" or "whatsapp-{phone}"
-  sessionId: string; // Format: "{phone}-v{version}"
+  sessionId: string; // Format: "{phone}-v{version}-{instance}"
   channel: 'sms' | 'whatsapp';
   phoneNumber: string;
   sessionVersion: number;
+  sessionInstance: number; // Instance number that increments when clearing session
   createdAt: number;
   lastActivity: number;
   isActive: boolean;
@@ -67,11 +68,13 @@ function generateSmsWhatsAppSessionKey(channel: 'sms' | 'whatsapp', phoneNumber:
 }
 
 /**
- * Generate session ID for SMS/WhatsApp (phone number + session version)
+ * Generate session ID for SMS/WhatsApp (phone number + session version + instance)
+ * Format: {phone}-v{version}-{instance}
+ * Example: 447968008814-v1-1, 447968008814-v1-2
  */
-function generateSmsWhatsAppSessionId(phoneNumber: string, sessionVersion: number): string {
+function generateSmsWhatsAppSessionId(phoneNumber: string, sessionVersion: number, instance: number = 1): string {
   const normalized = normalizePhoneNumber(phoneNumber);
-  return `${normalized}-v${sessionVersion}`;
+  return `${normalized}-v${sessionVersion}-${instance}`;
 }
 
 /**
@@ -91,9 +94,11 @@ export async function getOrCreateSmsWhatsAppSession(
   const sessionKey = generateSmsWhatsAppSessionKey(channel, phoneNumber);
   const now = Date.now();
   
-  // Check if user wants to start a new session
-  const wantsNewSession = messageText && 
-    messageText.trim().toLowerCase().includes('new session');
+  // Check if user wants to start a new session or clear session
+  const normalizedMessage = messageText?.trim().toLowerCase() || '';
+  const wantsNewSession = normalizedMessage.includes('new session');
+  const wantsClearSession = normalizedMessage.includes('clear session') || 
+    normalizedMessage.includes('session clear');
   
   try {
     // Get existing session (use threadKey as DynamoDB key name)
@@ -111,8 +116,8 @@ export async function getOrCreateSmsWhatsAppSession(
         console.warn('Existing session missing required fields, creating new session');
         // Fall through to create new session below
       } else {
-        // If user explicitly wants new session, create one
-        if (wantsNewSession) {
+        // If user explicitly wants new session or clear session, create one
+        if (wantsNewSession || wantsClearSession) {
           // Mark existing session as inactive
           await docClient.send(new UpdateCommand({
             TableName: TABLE_NAME,
@@ -123,9 +128,22 @@ export async function getOrCreateSmsWhatsAppSession(
             },
           }));
           
-          // Create new session
-          const newVersion = existingSession.sessionVersion + 1;
-          const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion);
+          // For "clear session": keep same version, increment instance
+          // For "new session": increment version, reset instance to 1
+          let newVersion: number;
+          let newInstance: number;
+          
+          if (wantsClearSession) {
+            // Clear session: keep version, increment instance
+            newVersion = existingSession.sessionVersion;
+            newInstance = (existingSession.sessionInstance || 1) + 1;
+          } else {
+            // New session: increment version, reset instance
+            newVersion = existingSession.sessionVersion + 1;
+            newInstance = 1;
+          }
+          
+          const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion, newInstance);
           
           const newSession: SmsWhatsAppSessionRecord = {
             sessionKey,
@@ -133,6 +151,7 @@ export async function getOrCreateSmsWhatsAppSession(
             channel,
             phoneNumber: normalizePhoneNumber(phoneNumber),
             sessionVersion: newVersion,
+            sessionInstance: newInstance,
             createdAt: now,
             lastActivity: now,
             isActive: true,
@@ -143,7 +162,8 @@ export async function getOrCreateSmsWhatsAppSession(
             Item: { ...newSession, threadKey: sessionKey },
           }));
           
-          console.log(`✓ Created new session (user requested): ${newSessionId}`);
+          const actionType = wantsClearSession ? 'clear session' : 'new session';
+          console.log(`✓ Created new session (user requested ${actionType}): ${newSessionId}`);
           return newSessionId;
         }
         
@@ -165,9 +185,10 @@ export async function getOrCreateSmsWhatsAppSession(
             console.log(`✓ Using existing session: ${existingSession.sessionId}`);
             return existingSession.sessionId;
           } else {
-            // Session expired, create new one
-            const newVersion = existingSession.sessionVersion + 1;
-            const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion);
+            // Session expired, create new one (keep version, increment instance)
+            const newVersion = existingSession.sessionVersion;
+            const newInstance = (existingSession.sessionInstance || 1) + 1;
+            const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion, newInstance);
             
             // Mark old session as inactive
             await docClient.send(new UpdateCommand({
@@ -186,6 +207,7 @@ export async function getOrCreateSmsWhatsAppSession(
               channel,
               phoneNumber: normalizePhoneNumber(phoneNumber),
               sessionVersion: newVersion,
+              sessionInstance: newInstance,
               createdAt: now,
               lastActivity: now,
               isActive: true,
@@ -200,9 +222,10 @@ export async function getOrCreateSmsWhatsAppSession(
             return newSessionId;
           }
         } else {
-          // Previous session was ended, create new one
-          const newVersion = existingSession.sessionVersion + 1;
-          const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion);
+          // Previous session was ended, create new one (keep version, increment instance)
+          const newVersion = existingSession.sessionVersion;
+          const newInstance = (existingSession.sessionInstance || 1) + 1;
+          const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, newVersion, newInstance);
           
           const newSession: SmsWhatsAppSessionRecord = {
             sessionKey,
@@ -210,6 +233,7 @@ export async function getOrCreateSmsWhatsAppSession(
             channel,
             phoneNumber: normalizePhoneNumber(phoneNumber),
             sessionVersion: newVersion,
+            sessionInstance: newInstance,
             createdAt: now,
             lastActivity: now,
             isActive: true,
@@ -227,13 +251,14 @@ export async function getOrCreateSmsWhatsAppSession(
     }
     
     // No existing session, create first one
-    const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, 1);
+    const newSessionId = generateSmsWhatsAppSessionId(phoneNumber, 1, 1);
     const newSession: SmsWhatsAppSessionRecord = {
       sessionKey,
       sessionId: newSessionId,
       channel,
       phoneNumber: normalizePhoneNumber(phoneNumber),
       sessionVersion: 1,
+      sessionInstance: 1,
       createdAt: now,
       lastActivity: now,
       isActive: true,
