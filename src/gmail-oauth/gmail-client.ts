@@ -394,7 +394,7 @@ export class GmailClient {
       // Create RFC 2822 formatted email message
       // Format: headers + blank line + body
       const messageHeaders: string[] = [
-        `From: HR Support <${fromEmail}>`,\
+        `From: HR Support <${fromEmail}>`,
         `To: ${to}`,
         `Subject: ${subject}`,
         `Content-Type: text/html; charset=utf-8`,
